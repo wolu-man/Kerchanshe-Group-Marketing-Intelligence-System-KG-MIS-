@@ -10,21 +10,26 @@ export interface DbConfig {
   options: {
     encrypt: boolean;
     trustServerCertificate: boolean;
+    instanceName?: string;
   };
   pool: { max: number; min: number; idleTimeoutMillis: number };
 }
 
 export function buildDbConfig(): DbConfig {
+  const options: DbConfig['options'] = {
+    encrypt: env.db.encrypt,
+    trustServerCertificate: true,
+  };
+  if (env.db.instance) {
+    options.instanceName = env.db.instance;
+  }
   return {
     server: env.db.server,
     port: env.db.port,
     user: env.db.user,
     password: env.db.password,
     database: env.db.database,
-    options: {
-      encrypt: env.db.encrypt,
-      trustServerCertificate: true,
-    },
+    options,
     pool: { max: 10, min: 0, idleTimeoutMillis: 30000 },
   };
 }

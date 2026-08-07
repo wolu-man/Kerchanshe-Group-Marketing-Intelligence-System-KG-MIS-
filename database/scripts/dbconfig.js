@@ -5,16 +5,18 @@ const dotenv = require('dotenv');
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 function getDbConfig() {
+  const options = {
+    encrypt: process.env.DB_ENCRYPT === 'true',
+    trustServerCertificate: true,
+  };
+  if (process.env.DB_INSTANCE) options.instanceName = process.env.DB_INSTANCE;
   return {
     server: process.env.DB_HOST || 'localhost',
     port: Number(process.env.DB_PORT || 1433),
     user: process.env.DB_USER || 'sa',
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'KG_MIS',
-    options: {
-      encrypt: process.env.DB_ENCRYPT === 'true',
-      trustServerCertificate: true,
-    },
+    options,
     pool: { max: 5, min: 0, idleTimeoutMillis: 30000 },
   };
 }

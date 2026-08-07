@@ -35,20 +35,22 @@ Status legend: `[x]` completed · `[~]` in progress · `[ ]` pending
 - [x] Backend verification: `npm run typecheck` and `npm run build`
 
 ## 4. Frontend (Next.js / TypeScript)
-- [ ] Portal scaffold (Next.js app, layout, nav, api client)
-- [ ] Login screen (local dev login + CUAS SSO mode)
-- [ ] Dashboard home (KPI summary + alerts)
-- [ ] Market visits: list + create/edit form
-- [ ] Surveys: builder + response form + responses list
-- [ ] Competitor pricing: entry + comparison + alerts
-- [ ] Admin: D365FO sync + role mapping + notification config
-- [ ] Reports / Power BI embedded view
-- [ ] Frontend verification: `npm run build`
+- [x] Portal scaffold (Next.js app, layout, nav, api client)
+- [x] Login screen (local dev login + CUAS SSO mode)
+- [x] Dashboard home (KPI summary + alerts)
+- [x] Market visits: list + create/edit form
+- [x] Surveys: builder + response form + responses list
+- [x] Competitor pricing: entry + comparison + alerts
+- [x] Admin: D365FO sync + role mapping + notification config
+- [x] Reports / Power BI embedded view
+- [x] Frontend verification: `npm run build`
 
 ## 5. Verification & Wrap-up
-- [ ] End-to-end smoke test (seed → login → create/submit data → notifications)
-- [ ] Root README with setup/run instructions
-- [ ] Task tracker final update
+- [x] End-to-end smoke test (seed → login → create/submit data → notifications)
+- [x] Root README with setup/run instructions
+- [x] Task tracker final update
+- [x] Local SQL Server Express (2025) connected on dynamic port 50404, `kgmis_user` login created
+- [x] `.env` created for local dev (git-ignored)
 
 ## Environment Notes
 - Node.js v26.1.0, npm 11.13.0, git 2.53.0 — all present on this machine.

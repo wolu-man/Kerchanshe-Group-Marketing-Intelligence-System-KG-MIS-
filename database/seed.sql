@@ -70,27 +70,30 @@ GO
 
 -- --- Products (D365FO cache sample) ---
 IF NOT EXISTS (SELECT 1 FROM dbo.Product WHERE ProductCode = 'BUN-ARABICA-1KG')
-INSERT INTO dbo.Product (ProductCode, Name, Category, UnitPrice) VALUES ('BUN-ARABICA-1KG', 'Buna Arabica 1kg', 'Coffee', 1250.00);
+INSERT INTO dbo.Product (D365FOKey, ProductCode, Name, Category, UnitPrice) VALUES ('P-ARABICA-1', 'BUN-ARABICA-1KG', 'Buna Arabica 1kg', 'Coffee', 1250.00);
 IF NOT EXISTS (SELECT 1 FROM dbo.Product WHERE ProductCode = 'BUN-ROBUSTA-500G')
-INSERT INTO dbo.Product (ProductCode, Name, Category, UnitPrice) VALUES ('BUN-ROBUSTA-500G', 'Buna Robusta 500g', 'Coffee', 480.00);
+INSERT INTO dbo.Product (D365FOKey, ProductCode, Name, Category, UnitPrice) VALUES ('P-ROBUSTA-1', 'BUN-ROBUSTA-500G', 'Buna Robusta 500g', 'Coffee', 480.00);
 IF NOT EXISTS (SELECT 1 FROM dbo.Product WHERE ProductCode = 'TEA-BLACK-250G')
-INSERT INTO dbo.Product (ProductCode, Name, Category, UnitPrice) VALUES ('TEA-BLACK-250G', 'Black Tea 250g', 'Tea', 320.00);
+INSERT INTO dbo.Product (D365FOKey, ProductCode, Name, Category, UnitPrice) VALUES ('P-TEA-1', 'TEA-BLACK-250G', 'Black Tea 250g', 'Tea', 320.00);
 IF NOT EXISTS (SELECT 1 FROM dbo.Product WHERE ProductCode = 'SUGAR-1KG')
-INSERT INTO dbo.Product (ProductCode, Name, Category, UnitPrice) VALUES ('SUGAR-1KG', 'Sugar 1kg', 'Sugar', 130.00);
+INSERT INTO dbo.Product (D365FOKey, ProductCode, Name, Category, UnitPrice) VALUES ('P-SUGAR-1', 'SUGAR-1KG', 'Sugar 1kg', 'Sugar', 130.00);
 IF NOT EXISTS (SELECT 1 FROM dbo.Product WHERE ProductCode = 'SPICE-BERBERE-250G')
-INSERT INTO dbo.Product (ProductCode, Name, Category, UnitPrice) VALUES ('SPICE-BERBERE-250G', 'Berbere Spice 250g', 'Spices', 220.00);
+INSERT INTO dbo.Product (D365FOKey, ProductCode, Name, Category, UnitPrice) VALUES ('P-BERB-1', 'SPICE-BERBERE-250G', 'Berbere Spice 250g', 'Spices', 220.00);
 GO
 
 -- --- Customers (D365FO cache sample) ---
 IF NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE CustomerCode = 'CUS-0001')
-INSERT INTO dbo.Customer (CustomerCode, Name, CustomerType) VALUES ('CUS-0001', 'Addis Coffee Distributors', 'Distributor');
+INSERT INTO dbo.Customer (D365FOKey, CustomerCode, Name, CustomerType) VALUES ('C-0001', 'CUS-0001', 'Addis Coffee Distributors', 'Distributor');
 IF NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE CustomerCode = 'CUS-0002')
-INSERT INTO dbo.Customer (CustomerCode, Name, CustomerType) VALUES ('CUS-0002', 'Oromia Retail Group', 'Retailer');
+INSERT INTO dbo.Customer (D365FOKey, CustomerCode, Name, CustomerType) VALUES ('C-0002', 'CUS-0002', 'Oromia Retail Group', 'Retailer');
 IF NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE CustomerCode = 'CUS-0003')
-INSERT INTO dbo.Customer (CustomerCode, Name, CustomerType) VALUES ('CUS-0003', 'Amhara Wholesale PLC', 'Wholesale');
+INSERT INTO dbo.Customer (D365FOKey, CustomerCode, Name, CustomerType) VALUES ('C-0003', 'CUS-0003', 'Amhara Wholesale PLC', 'Wholesale');
 GO
 
 -- --- Sample sales records (used by Power BI KPIs) ---
+DECLARE @AA INT = (SELECT RegionID FROM dbo.Region WHERE RegionName = 'Addis Ababa');
+DECLARE @OR INT = (SELECT RegionID FROM dbo.Region WHERE RegionName = 'Oromia');
+DECLARE @AM INT = (SELECT RegionID FROM dbo.Region WHERE RegionName = 'Amhara');
 DECLARE @ProdArabica INT = (SELECT ProductID FROM dbo.Product WHERE ProductCode = 'BUN-ARABICA-1KG');
 DECLARE @ProdRobusta INT = (SELECT ProductID FROM dbo.Product WHERE ProductCode = 'BUN-ROBUSTA-500G');
 DECLARE @ProdTea INT = (SELECT ProductID FROM dbo.Product WHERE ProductCode = 'TEA-BLACK-250G');

@@ -36,7 +36,7 @@ const questionSchema = z.object({
   questionType: z.enum(['SingleChoice', 'MultiChoice', 'Text', 'Numeric', 'Rating']),
   questionText: z.string().min(1).max(1000),
   options: z.array(z.string()).optional(),
-  logicRule: logicRuleSchema,
+  logicRule: logicRuleSchema.optional(),
   isRequired: z.boolean().optional(),
   minValue: z.coerce.number().optional(),
   maxValue: z.coerce.number().optional(),

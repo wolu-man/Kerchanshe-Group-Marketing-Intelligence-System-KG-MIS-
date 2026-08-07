@@ -175,6 +175,7 @@ export async function createSurvey(userId: number, input: SurveyInput) {
         SELECT SCOPE_IDENTITY() AS SurveyID;
       `);
     const surveyId = Number(surveyResult.recordset[0].SurveyID);
+    request.input('surveyId', sql.Int, surveyId);
 
     for (let i = 0; i < input.questions.length; i += 1) {
       const q = input.questions[i];
@@ -187,7 +188,6 @@ export async function createSurvey(userId: number, input: SurveyInput) {
         .input(`min${i}`, sql.Decimal(18, 2), q.minValue ?? null)
         .input(`max${i}`, sql.Decimal(18, 2), q.maxValue ?? null)
         .input(`sort${i}`, sql.Int, q.sortOrder ?? i)
-        .input('surveyId', sql.Int, surveyId)
         .query(`
           INSERT INTO dbo.SurveyQuestion (SurveyID, QuestionType, QuestionText, OptionsJSON, LogicRuleJSON, IsRequired, MinValue, MaxValue, SortOrder)
           VALUES (@surveyId, @type${i}, @text${i}, @options${i}, @logic${i}, @required${i}, @min${i}, @max${i}, @sort${i});

@@ -64,8 +64,8 @@ export async function upsertFromD365fo(entity: 'Product' | 'Customer' | 'Sales')
   await transaction.begin();
 
   try {
-    const request = new sql.Request(transaction);
     for (const row of rows) {
+      const request = new sql.Request(transaction);
       switch (entity) {
         case 'Product': {
           await request

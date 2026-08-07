@@ -1,7 +1,23 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+function loadEnvFile(): void {
+  let dir = process.cwd();
+  for (let i = 0; i < 8; i += 1) {
+    const candidate = path.resolve(dir, '.env');
+    if (fs.existsSync(candidate)) {
+      dotenv.config({ path: candidate });
+      return;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  dotenv.config();
+}
+
+loadEnvFile();
 
 function bool(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) return fallback;
@@ -15,6 +31,7 @@ export const env = {
   db: {
     server: process.env.DB_HOST || 'localhost',
     port: Number(process.env.DB_PORT || 1433),
+    instance: process.env.DB_INSTANCE || '',
     user: process.env.DB_USER || 'sa',
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'KG_MIS',
