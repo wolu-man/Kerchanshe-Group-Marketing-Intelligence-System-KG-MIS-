@@ -1,7 +1,10 @@
 # KG-MIS — Hybrid Market Intelligence System
 
 Web platform for Kerchanshe Group's Marketing department to capture market visit
-reports, surveys, and competitor pricing, and to view Power BI dashboards.
+reports, surveys, and competitor pricing, and to view Power BI dashboards —
+with a built-in **AI Assistant & Predictive Intelligence** layer (form
+assistant, response analysis, natural-language data queries, and deterministic
+forecasts/anomalies).
 
 Reference documents: `Docs/` (Solution Design, FDS, TDS, Integration Design,
 Phase 0 Planning, User Requirement).
@@ -131,3 +134,53 @@ exact places the real API calls are inserted.
 | Notifications     | `GET /notifications`, `GET/POST /notifications/config` |
 | Reports (Power BI)| `GET /reports`, `GET /reports/embed-token` |
 | Reference         | `GET /regions`, `/outlets`, `/products`, `/users`, `/role-mappings` (`PUT /role-mappings/:id`) |
+| AI surfaces        | `GET /ai/providers`, `POST /ai/assistant`, `POST /ai/writing`, `POST /ai/analysis`, `POST /ai/ask`, `POST /ai/predictive`, `GET /ai/predictive/summary`, `POST /ai/public/writing` |
+
+## AI surfaces
+
+The Form Builder has an optional assistant (✨ in the toolbar) that proposes form
+changes in natural language, plus five more AI features that share the same
+providers and security model:
+
+- **Respondent writing assistant** — suggest-before-replace help for open-text
+  answers while filling (authenticated or public) and when editing responses.
+- **Response analysis** — server-computed metrics for one form, explained by the
+  model (Reports → *AI analysis*, or the AI drawer → *Responses*).
+- **Ask AI** — natural-language questions over MIS data answered from a fixed
+  catalogue of 27 queries (15 read + 12 forecast/anomaly), with the data used
+  shown next to every answer (AI drawer → *Data*, or Reports → *Ask AI*).
+- **Global launcher** — a floating ✨ button on every MIS page (AI roles only)
+  opens the same Ask AI chat in a side sheet, automatically carrying the current
+  page context (module/record) as an advisory hint.
+- **Predictive insights** — deterministic forecasts (sales, weekly sales, KPI,
+  competitor price, price gap, product demand, survey/interview/visit/media
+  activity) with confidence bands, backtest stats and anomaly flags, shown as
+  insight cards on the dashboard and available to Ask AI as `forecast_*`,
+  `predict_*` and `detect_anomalies` tools.
+
+The numbers are **never** produced by the model: a server-side engine picks the
+statistical model by walk-forward backtest, states a confidence level
+(High / Moderate / Low / **Insufficient** when history is too thin), and the
+assistant only explains what came back. Cards refresh nightly (04:15) and are
+cached in memory + the `PredictiveInsight` table.
+
+Everything runs on **Ollama (local) / Google Gemini / Groq**, selected
+automatically or manually — see
+[Docs/AI_Form_Assistant.md](Docs/AI_Form_Assistant.md) (*KG-MIS AI Assistant*).
+
+```env
+# backend/.env
+AI_PROVIDER=auto
+OLLAMA_BASE_URL=http://localhost:11434   # or leave Ollama out entirely
+GEMINI_API_KEY=                          # either key is enough
+GROQ_API_KEY=
+```
+
+Form proposals are always previewed and confirmed before anything is saved; the
+resulting schema is committed through the normal builder undo/autosave path.
+Writing suggestions never touch the draft until you click *Use this*, analysis
+only reads pre-computed metrics, and Ask AI — including the global launcher —
+can only run validated read-only queries with the caller's permissions. Forecasts
+come from the deterministic engine, are permission-checked exactly like the read
+tool for the same data, and are labelled with their confidence. Writes
+are deliberately exclusive to the Form Assistant's confirmed flow.
