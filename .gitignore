@@ -34,3 +34,8 @@ Thumbs.db
 # Independent application repositories (backend/, frontend/)
 backend/
 frontend/
+
+# Local config folders
+.codebuddy/
+.history/
+.opencode/

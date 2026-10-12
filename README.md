@@ -134,12 +134,12 @@ exact places the real API calls are inserted.
 | Notifications     | `GET /notifications`, `GET/POST /notifications/config` |
 | Reports (Power BI)| `GET /reports`, `GET /reports/embed-token` |
 | Reference         | `GET /regions`, `/outlets`, `/products`, `/users`, `/role-mappings` (`PUT /role-mappings/:id`) |
-| AI surfaces        | `GET /ai/providers`, `POST /ai/assistant`, `POST /ai/writing`, `POST /ai/analysis`, `POST /ai/ask`, `POST /ai/predictive`, `GET /ai/predictive/summary`, `POST /ai/public/writing` |
+| AI surfaces        | `GET /ai/providers`, `POST /ai/assistant`, `POST /ai/writing`, `POST /ai/analysis`, `POST /ai/ask`, `POST /ai/attachments`, `POST /ai/predictive`, `GET /ai/predictive/summary`, `POST /ai/public/writing`, `POST /ai/public/ask` |
 
 ## AI surfaces
 
 The Form Builder has an optional assistant (✨ in the toolbar) that proposes form
-changes in natural language, plus five more AI features that share the same
+changes in natural language, plus six more AI features that share the same
 providers and security model:
 
 - **Respondent writing assistant** — suggest-before-replace help for open-text
@@ -149,6 +149,10 @@ providers and security model:
 - **Ask AI** — natural-language questions over MIS data answered from a fixed
   catalogue of 27 queries (15 read + 12 forecast/anomaly), with the data used
   shown next to every answer (AI drawer → *Data*, or Reports → *Ask AI*).
+  The chat also supports a full-Unicode emoji picker, mic dictation (sends
+  when you stop speaking), an optional per-user voice-reply toggle, and file
+  attachments (CSV/Excel/text/PDF/DOCX extracted server-side; images answered
+  by Gemini) via `POST /ai/attachments`.
 - **Global launcher** — a floating ✨ button on every MIS page (AI roles only)
   opens the same Ask AI chat in a side sheet, automatically carrying the current
   page context (module/record) as an advisory hint.
@@ -157,6 +161,11 @@ providers and security model:
   activity) with confidence bands, backtest stats and anomaly flags, shown as
   insight cards on the dashboard and available to Ask AI as `forecast_*`,
   `predict_*` and `detect_anomalies` tools.
+- **Public landing assistant** — a floating 💬 chat on the landing page for
+  anonymous visitors (`POST /ai/public/ask`, no login, 10/min per IP). Answers
+  come from static site knowledge only — it refuses all data, internal and
+  prompt-extraction questions by construction (one text tool, no catalogue, no
+  database path) and stores nothing beyond a metadata audit row.
 
 The numbers are **never** produced by the model: a server-side engine picks the
 statistical model by walk-forward backtest, states a confidence level
@@ -180,7 +189,9 @@ Form proposals are always previewed and confirmed before anything is saved; the
 resulting schema is committed through the normal builder undo/autosave path.
 Writing suggestions never touch the draft until you click *Use this*, analysis
 only reads pre-computed metrics, and Ask AI — including the global launcher —
-can only run validated read-only queries with the caller's permissions. Forecasts
+can only run validated read-only queries with the caller's permissions. The
+public landing assistant never touches data at all: it answers site questions
+from built-in copy and refuses everything else. Forecasts
 come from the deterministic engine, are permission-checked exactly like the read
 tool for the same data, and are labelled with their confidence. Writes
 are deliberately exclusive to the Form Assistant's confirmed flow.
