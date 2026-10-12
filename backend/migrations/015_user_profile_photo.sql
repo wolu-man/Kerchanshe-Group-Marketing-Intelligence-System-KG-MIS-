@@ -1,0 +1,7 @@
+-- 015: Add ProfilePhoto column to User table
+
+IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'User' AND COLUMN_NAME = 'ProfilePhoto')
+BEGIN
+  ALTER TABLE dbo.[User] ADD ProfilePhoto NVARCHAR(500) NULL;
+END
+GO

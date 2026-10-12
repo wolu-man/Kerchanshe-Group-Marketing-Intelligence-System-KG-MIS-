@@ -1,0 +1,7 @@
+-- 014: Add Address column to Interview table
+
+IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Interview' AND COLUMN_NAME = 'Address')
+BEGIN
+  ALTER TABLE dbo.Interview ADD Address NVARCHAR(500) NULL;
+END
+GO

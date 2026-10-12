@@ -1,0 +1,75 @@
+-- 028: Update Buna Plate product data from Excel
+-- Updates Name, Color, Size for all Buna Plate products
+-- Source: Docs/Master-data/Products and Price List.xlsx
+
+DECLARE @colors NVARCHAR(500) = 'Red, Yellow, Orange, White, Green, Gray, Beige, Ivory, Lime Yellow, Lime Green, Black';
+
+UPDATE dbo.Product SET Name = 'Bowl', Color = @colors, Size = 'Normal' WHERE ProductCode = 'BB1/2';
+UPDATE dbo.Product SET Name = 'Mug', Color = @colors, Size = 'Normal' WHERE ProductCode = 'BM1';
+UPDATE dbo.Product SET Name = 'Mug', Color = @colors, Size = 'Normal' WHERE ProductCode = 'BM2';
+UPDATE dbo.Product SET Name = 'Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'BP1';
+UPDATE dbo.Product SET Name = 'Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'BP2';
+UPDATE dbo.Product SET Name = 'Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'BP3';
+UPDATE dbo.Product SET Name = 'Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'BP4';
+UPDATE dbo.Product SET Name = 'Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'BP5';
+UPDATE dbo.Product SET Name = 'Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'BP6';
+UPDATE dbo.Product SET Name = 'Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'BP8';
+UPDATE dbo.Product SET Name = 'Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'BP9';
+UPDATE dbo.Product SET Name = 'Bowl', Color = @colors, Size = 'Normal' WHERE ProductCode = 'CW054';
+UPDATE dbo.Product SET Name = 'Plate With Dot', Color = @colors, Size = 'Normal' WHERE ProductCode = 'CW156';
+UPDATE dbo.Product SET Name = '4 1/4'' Bowl', Color = @colors, Size = 'Thick' WHERE ProductCode = 'KB10045A';
+UPDATE dbo.Product SET Name = '4 1/4'' Bowl', Color = @colors, Size = 'Thin' WHERE ProductCode = 'KB10045B';
+UPDATE dbo.Product SET Name = '5 1/2'' Bowl', Color = @colors, Size = 'Thick' WHERE ProductCode = 'KB10055A';
+UPDATE dbo.Product SET Name = '5 1/2'' Bowl', Color = @colors, Size = 'Thin' WHERE ProductCode = 'KB10055B';
+UPDATE dbo.Product SET Name = 'Round Bowl', Color = @colors, Size = 'Thick' WHERE ProductCode = 'KB1009A';
+UPDATE dbo.Product SET Name = 'Round Bowl', Color = @colors, Size = 'Thin' WHERE ProductCode = 'KB1009B';
+UPDATE dbo.Product SET Name = 'Round Bowl', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB1010N';
+UPDATE dbo.Product SET Name = 'Round Bowl', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB1020N';
+UPDATE dbo.Product SET Name = '7'' Round Bowl', Color = @colors, Size = 'Thick' WHERE ProductCode = 'KB1107A';
+UPDATE dbo.Product SET Name = '7'' Round Bowl', Color = @colors, Size = 'Thin' WHERE ProductCode = 'KB1107B';
+UPDATE dbo.Product SET Name = '9'' Round Bowl', Color = @colors, Size = 'Thick' WHERE ProductCode = 'KB1109A';
+UPDATE dbo.Product SET Name = '9'' Round Bowl', Color = @colors, Size = 'Thin' WHERE ProductCode = 'KB1109B';
+UPDATE dbo.Product SET Name = '6'' Round Meat Plate', Color = @colors, Size = 'Thick' WHERE ProductCode = 'KB2006A';
+UPDATE dbo.Product SET Name = '6'' Round Meat Plate', Color = @colors, Size = 'Thin' WHERE ProductCode = 'KB2006B';
+UPDATE dbo.Product SET Name = '8'' Round Meat Plate', Color = @colors, Size = 'Thick' WHERE ProductCode = 'KB2008A';
+UPDATE dbo.Product SET Name = '8'' Round Meat Plate', Color = @colors, Size = 'Thick' WHERE ProductCode = 'KB2008B';
+UPDATE dbo.Product SET Name = '10'' Round Meat Plate', Color = @colors, Size = 'Thin' WHERE ProductCode = 'KB2010A';
+UPDATE dbo.Product SET Name = '10'' Round Meat Plate', Color = @colors, Size = 'Thin' WHERE ProductCode = 'KB2010B';
+UPDATE dbo.Product SET Name = '10 1/2'' Round Fruit Plate', Color = @colors, Size = 'Thick' WHERE ProductCode = 'KB21105A';
+UPDATE dbo.Product SET Name = '10 1/2'' Round Fruit Plate', Color = @colors, Size = 'Thin' WHERE ProductCode = 'KB21105B';
+UPDATE dbo.Product SET Name = '12 1/2'' Round Fruit Plate', Color = @colors, Size = 'Thick' WHERE ProductCode = 'KB21125A';
+UPDATE dbo.Product SET Name = '12 1/2'' Round Fruit Plate', Color = @colors, Size = 'Thin' WHERE ProductCode = 'KB21125B';
+UPDATE dbo.Product SET Name = 'Tray', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB21135N';
+UPDATE dbo.Product SET Name = 'Tray', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB21145N';
+UPDATE dbo.Product SET Name = '10 1/2'' Round Soup Plate', Color = @colors, Size = 'Thick' WHERE ProductCode = 'KB22105A';
+UPDATE dbo.Product SET Name = '10 1/2'' Round Soup Plate', Color = @colors, Size = 'Thin' WHERE ProductCode = 'KB22105B';
+UPDATE dbo.Product SET Name = '14'' Oval Plate', Color = @colors, Size = 'Thick' WHERE ProductCode = 'KB2414A';
+UPDATE dbo.Product SET Name = '14'' Oval Plate', Color = @colors, Size = 'Thin' WHERE ProductCode = 'KB2414B';
+UPDATE dbo.Product SET Name = '16'' Oval Plate', Color = @colors, Size = 'Thick' WHERE ProductCode = 'KB2416A';
+UPDATE dbo.Product SET Name = '16'' Oval Plate', Color = @colors, Size = 'Thin' WHERE ProductCode = 'KB2416B';
+UPDATE dbo.Product SET Name = 'Oval Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB2418';
+UPDATE dbo.Product SET Name = 'Oval Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB2420';
+UPDATE dbo.Product SET Name = 'Serving Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB31125';
+UPDATE dbo.Product SET Name = 'Serving Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB31135';
+UPDATE dbo.Product SET Name = 'Coffee Cup With Handle', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB51001/2';
+UPDATE dbo.Product SET Name = 'Coffee Cup', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB51005/6';
+UPDATE dbo.Product SET Name = 'Coffee Cup', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB51007';
+UPDATE dbo.Product SET Name = 'Leaf Shop Bowl', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB60253A';
+UPDATE dbo.Product SET Name = 'Leaf Shop Bowl', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB60253B';
+UPDATE dbo.Product SET Name = 'Serving Bowl', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB60263';
+UPDATE dbo.Product SET Name = 'Flower Small Dish', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB61085N';
+UPDATE dbo.Product SET Name = 'Serving Dish', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB622070';
+UPDATE dbo.Product SET Name = 'Big Spoon', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB90270';
+UPDATE dbo.Product SET Name = 'Serving Spoon', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB90275';
+UPDATE dbo.Product SET Name = 'Serving Spoon', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB90280';
+UPDATE dbo.Product SET Name = 'Bowl', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB163';
+UPDATE dbo.Product SET Name = '8 1/2'' Round Soup Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB22085A';
+UPDATE dbo.Product SET Name = '8 1/2'' Round Soup Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB22085B';
+UPDATE dbo.Product SET Name = '9'' Flour Soup Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB2309A';
+UPDATE dbo.Product SET Name = '9'' Flour Soup Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB2309B';
+UPDATE dbo.Product SET Name = '10'' Oval Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB2410A';
+UPDATE dbo.Product SET Name = '10'' Oval Plate', Color = @colors, Size = 'Normal' WHERE ProductCode = 'KB2410B';
+UPDATE dbo.Product SET Name = 'Bowl With Bamboo Knot', Color = @colors, Size = 'Thick' WHERE ProductCode = 'KB62260A';
+UPDATE dbo.Product SET Name = 'Bowl With Bamboo Knot', Color = @colors, Size = 'Thin' WHERE ProductCode = 'KB62260B';
+UPDATE dbo.Product SET Name = 'Bowl', Color = @colors, Size = 'Normal' WHERE ProductCode = 'BB5 1/2';
+GO

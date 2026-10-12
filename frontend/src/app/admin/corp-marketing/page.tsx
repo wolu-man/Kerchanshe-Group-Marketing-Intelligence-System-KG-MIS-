@@ -1,0 +1,692 @@
+'use client';
+
+import { Fragment, useMemo, useState } from 'react';
+import { Guard, RequireRole } from '@/components/Guard';
+import { Button, Card, Badge, Modal, Tabs, Icon, Loading, Empty } from '@/components/ui';
+import { useFetch } from '@/lib/use-api';
+import { api, ApiError, qs } from '@/lib/api';
+import { toast } from '@/components/Toast';
+import type { CorpTask, CorpTaskPage, CorpEvent, CorpSummary } from '@/lib/types';
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function statusTone(s: string | null | undefined): 'success' | 'danger' | 'warning' | 'neutral' | 'info' {
+  if (s === 'Verified' || s === 'Completed') return 'success';
+  if (s === 'Not Verified' || s === 'Planned') return 'warning';
+  if (s === 'Rejected' || s === 'Cancelled') return 'danger';
+  if (s === 'In Progress') return 'info';
+  return 'neutral';
+}
+
+function StatCard({ icon, label, value, sub, tone }: { icon: string; label: string; value: string | number; sub?: string; tone: 'blue' | 'green' | 'amber' | 'red' }) {
+  return (
+    <div className="kpi-oc">
+      <div className={`kpi-oc-icon ${tone}`}><Icon name={icon} /></div>
+      <div className="kpi-oc-body">
+        <div className="kpi-oc-label">{label}</div>
+        <div className="kpi-oc-value">{value}</div>
+        {sub && <div className="kpi-oc-sub">{sub}</div>}
+      </div>
+    </div>
+  );
+}
+
+function numOrNull(s: string): number | null {
+  const t = s.trim();
+  if (t === '') return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Dashboard tab                                                               */
+/* -------------------------------------------------------------------------- */
+function DashboardTab({
+  summary, year, month, setYear, setMonth,
+}: {
+  summary: CorpSummary | null;
+  year: string;
+  month: string;
+  setYear: (y: string) => void;
+  setMonth: (m: string) => void;
+}) {
+  const now = new Date();
+  return (
+    <div>
+      <div className="kpi-filters">
+        <div className="filter-group">
+          <Icon name="calendar" />
+          <select value={year} onChange={(e) => setYear(e.target.value)}>
+            {[now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map((y) => (
+              <option key={y} value={String(y)}>{y}</option>
+            ))}
+          </select>
+        </div>
+        <div className="filter-group">
+          <select value={month} onChange={(e) => setMonth(e.target.value)}>
+            <option value="">All months</option>
+            {MONTH_NAMES.map((m, i) => <option key={m} value={String(i + 1)}>{m}</option>)}
+          </select>
+        </div>
+      </div>
+      {!summary ? <Loading /> : (
+        <>
+          <div className="grid-4" style={{ marginBottom: 16 }}>
+            <StatCard icon="chart-pie" label="Total tasks" value={summary.tasks.total} tone="blue" />
+            <StatCard icon="circle-check" label="Verified" value={summary.tasks.verified} tone="green" />
+            <StatCard icon="hourglass-half" label="Not verified" value={summary.tasks.notVerified} tone="amber" />
+            <StatCard icon="circle-xmark" label="Rejected" value={summary.tasks.rejected} tone="red" />
+          </div>
+          <div className="grid-4" style={{ marginBottom: 16 }}>
+            <StatCard icon="chart-simple" label="Avg completion" value={summary.tasks.avgCompletion != null ? `${summary.tasks.avgCompletion}%` : '—'} tone="blue" />
+            <StatCard icon="user-check" label="Assigned" value={summary.tasks.assigned} sub="rows with a responsible person" tone="green" />
+            <StatCard icon="calendar-check" label="Events planned" value={summary.events.planned} sub={`${summary.events.total} event shells`} tone="amber" />
+            <StatCard icon="flag-checkered" label="Events completed" value={summary.events.completed} tone="blue" />
+          </div>
+          <Card title="Rollup by responsible role">
+            <table className="data-table">
+              <thead>
+                <tr><th>Responsible role</th><th>Tasks</th><th>Verified</th><th>Avg completion</th></tr>
+              </thead>
+              <tbody>
+                {summary.byRole.map((r) => (
+                  <tr key={r.ResponsibleRole ?? '-'}>
+                    <td>{r.ResponsibleRole ?? '—'}</td>
+                    <td>{r.total}</td>
+                    <td>{r.verified}</td>
+                    <td>{r.avgCompletion != null ? `${Math.round(r.avgCompletion)}%` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Monthly Plan tab                                                            */
+/* -------------------------------------------------------------------------- */
+function PlanTab({
+  year, month, setYear, setMonth, roles, onRefresh,
+}: {
+  year: string;
+  month: string;
+  setYear: (y: string) => void;
+  setMonth: (m: string) => void;
+  roles: string[];
+  onRefresh: () => void;
+}) {
+  const now = new Date();
+  const [role, setRole] = useState('');
+  const [status, setStatus] = useState('');
+  const [search, setSearch] = useState('');
+  const [drafts, setDrafts] = useState<Record<number, { person?: string; completion?: string; remarks?: string; saving?: boolean }>>({});
+
+  const data = useFetch<CorpTaskPage>(
+    `/admin/corp-marketing/tasks?${qs({ year, month, role, status, search, pageSize: 500 })}`,
+    [year, month, role, status, search]
+  );
+  const items = data.data?.items ?? [];
+
+  const stats = useMemo(() => {
+    const s = { verified: 0, notVerified: 0, rejected: 0 };
+    for (const i of items) {
+      if (i.Status === 'Verified') s.verified++;
+      else if (i.Status === 'Rejected') s.rejected++;
+      else s.notVerified++;
+    }
+    return s;
+  }, [items]);
+
+  function draftFor(row: CorpTask) {
+    return drafts[row.CorpTaskID] ?? {};
+  }
+  function setDraft(row: CorpTask, patch: Partial<{ person: string; completion: string; remarks: string; saving: boolean }>) {
+    setDrafts((d) => ({ ...d, [row.CorpTaskID]: { ...d[row.CorpTaskID], ...patch } }));
+  }
+
+  async function saveRow(row: CorpTask) {
+    const d = draftFor(row);
+    const completion = numOrNull(d.completion ?? (row.CompletionPercent != null ? String(row.CompletionPercent) : ''));
+    if (completion != null && (completion < 0 || completion > 100)) {
+      toast.error('Completion must be between 0 and 100');
+      return;
+    }
+    setDraft(row, { saving: true });
+    try {
+      await api(`/admin/corp-marketing/tasks/${row.CorpTaskID}`, {
+        method: 'PUT',
+        body: {
+          responsiblePerson: d.person ?? row.ResponsiblePerson,
+          completionPercent: completion,
+          evidenceRemarks: d.remarks ?? row.EvidenceRemarks,
+        },
+      });
+      toast.success(`${row.TaskId} saved`);
+      await data.reload();
+      onRefresh();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to save task');
+    } finally {
+      setDraft(row, { saving: false });
+    }
+  }
+
+  async function act(row: CorpTask, decision: 'Verified' | 'Rejected') {
+    let note: string | null = '';
+    if (decision === 'Rejected') {
+      note = prompt('Rejection note (required):');
+      if (note === null) return;
+      if (!note.trim()) {
+        toast.error('A rejection note is required');
+        return;
+      }
+    }
+    try {
+      const res = await api<{ updated: number }>('/admin/corp-marketing/verify', {
+        method: 'POST',
+        body: { ids: [row.CorpTaskID], decision, note: note || null },
+      });
+      if (res.updated === 0) toast.error('Task is no longer pending verification');
+      else toast.success(`${row.TaskId} ${decision.toLowerCase()}`);
+      await data.reload();
+      onRefresh();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Verification failed');
+    }
+  }
+
+  let prevParent = '';
+
+  return (
+    <div>
+      <div className="kpi-filters">
+        <div className="filter-group">
+          <Icon name="calendar" />
+          <select value={year} onChange={(e) => setYear(e.target.value)}>
+            {[now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map((y) => (
+              <option key={y} value={String(y)}>{y}</option>
+            ))}
+          </select>
+        </div>
+        <div className="filter-group">
+          <select value={month} onChange={(e) => setMonth(e.target.value)}>
+            <option value="">All months</option>
+            {MONTH_NAMES.map((m, i) => <option key={m} value={String(i + 1)}>{m}</option>)}
+          </select>
+        </div>
+        <div className="filter-group">
+          <Icon name="filter" />
+          <select value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="">All roles</option>
+            {roles.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </div>
+        <div className="filter-group">
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">All statuses</option>
+            <option value="Not Verified">Not Verified</option>
+            <option value="Verified">Verified</option>
+            <option value="Rejected">Rejected</option>
+          </select>
+        </div>
+        <div className="filter-group">
+          <Icon name="search" />
+          <input type="text" placeholder="Search tasks..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <div className="spacer" />
+        <span className="sub-text">{data.data?.total ?? items.length} tasks</span>
+      </div>
+
+      <div className="grid-4" style={{ marginBottom: 16 }}>
+        <StatCard icon="circle-check" label="Verified" value={stats.verified} tone="green" />
+        <StatCard icon="hourglass-half" label="Not verified" value={stats.notVerified} tone="amber" />
+        <StatCard icon="circle-xmark" label="Rejected" value={stats.rejected} tone="red" />
+        <StatCard icon="calendar" label="Month" value={month ? MONTH_NAMES[Number(month) - 1] : 'All'} sub={year} tone="blue" />
+      </div>
+
+      {data.loading ? <Loading /> : data.error ? (
+        <div className="empty" style={{ color: 'var(--danger)' }}>{data.error}</div>
+      ) : items.length === 0 ? <Empty /> : (
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th>Role</th>
+              <th>Person</th>
+              <th>Completion %</th>
+              <th>Evidence / Remarks</th>
+              <th>Status</th>
+              <th>Task ID</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((row) => {
+              const d = draftFor(row);
+              const groupChanged = row.ParentCode !== prevParent;
+              prevParent = row.ParentCode;
+              return (
+                <Fragment key={row.CorpTaskID}>
+                  {groupChanged && (
+                    <tr>
+                      <td colSpan={8} style={{ background: 'var(--bg-subtle, #f4f6fa)', fontWeight: 600 }}>
+                        <code>{row.ParentCode}</code> — {row.MainActivityKpi}
+                      </td>
+                    </tr>
+                  )}
+                  <tr>
+                    <td title={row.TaskName}>{row.TaskName.length > 70 ? `${row.TaskName.slice(0, 70)}…` : row.TaskName}</td>
+                    <td>{row.ResponsibleRole ?? '—'}</td>
+                    <td>
+                      <input
+                        style={{ width: 160 }}
+                        value={d.person ?? row.ResponsiblePerson ?? ''}
+                        placeholder="Assign..."
+                        onChange={(e) => setDraft(row, { person: e.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        style={{ width: 80 }}
+                        value={d.completion ?? (row.CompletionPercent != null ? String(row.CompletionPercent) : '')}
+                        placeholder="—"
+                        onChange={(e) => setDraft(row, { completion: e.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        style={{ width: 200 }}
+                        value={d.remarks ?? row.EvidenceRemarks ?? ''}
+                        placeholder="—"
+                        onChange={(e) => setDraft(row, { remarks: e.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <Badge tone={statusTone(row.Status)}>{row.Status}</Badge>
+                      {row.Status === 'Rejected' && row.VerificationNote ? (
+                        <div className="sub-text" title={row.VerificationNote}>{row.VerificationNote.slice(0, 40)}</div>
+                      ) : null}
+                    </td>
+                    <td className="date-cell"><code>{row.TaskId}</code></td>
+                    <td>
+                      <div className="action-btns">
+                        <Button variant="primary" size="sm" disabled={d.saving} onClick={() => void saveRow(row)}>
+                          {d.saving ? '...' : 'Save'}
+                        </Button>
+                        {row.Status === 'Not Verified' ? (
+                          <>
+                            <Button variant="ghost" size="sm" title="Verify" onClick={() => void act(row, 'Verified')}>
+                              <Icon name="check" />
+                            </Button>
+                            <Button variant="ghost" size="sm" title="Reject" onClick={() => void act(row, 'Rejected')}>
+                              <Icon name="xmark" />
+                            </Button>
+                          </>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Events & Campaigns tab                                                      */
+/* -------------------------------------------------------------------------- */
+function EventsTab({ onRefresh }: { onRefresh: () => void }) {
+  const [status, setStatus] = useState('');
+  const [search, setSearch] = useState('');
+  const [edit, setEdit] = useState<CorpEvent | null>(null);
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  const data = useFetch<{ items: CorpEvent[]; total: number }>(
+    `/admin/corp-marketing/events?${qs({ status, search })}`,
+    [status, search]
+  );
+  const items = data.data?.items ?? [];
+
+  function openEdit(row: CorpEvent) {
+    setEdit(row);
+    setForm({
+      category: row.Category ?? '',
+      eventName: row.EventName ?? '',
+      businessUnit: row.BusinessUnit ?? '',
+      responsiblePerson: row.ResponsiblePerson ?? '',
+      responsibleRole: row.ResponsibleRole ?? '',
+      location: row.Location ?? '',
+      startDate: row.StartDate ?? '',
+      endDate: row.EndDate ?? '',
+      status: row.Status,
+      plannedParticipants: row.PlannedParticipants != null ? String(row.PlannedParticipants) : '',
+      actualParticipants: row.ActualParticipants != null ? String(row.ActualParticipants) : '',
+      leadsGenerated: row.LeadsGenerated != null ? String(row.LeadsGenerated) : '',
+      conversions: row.Conversions != null ? String(row.Conversions) : '',
+      plannedRevenue: row.PlannedRevenue != null ? String(row.PlannedRevenue) : '',
+      actualRevenue: row.ActualRevenue != null ? String(row.ActualRevenue) : '',
+      approvedBudget: row.ApprovedBudget != null ? String(row.ApprovedBudget) : '',
+      actualCost: row.ActualCost != null ? String(row.ActualCost) : '',
+      reachImpressions: row.ReachImpressions != null ? String(row.ReachImpressions) : '',
+      engagements: row.Engagements != null ? String(row.Engagements) : '',
+      satisfactionScore: row.SatisfactionScore != null ? String(row.SatisfactionScore) : '',
+      kpiTarget: row.KpiTarget ?? '',
+      kpiActual: row.KpiActual ?? '',
+      evidenceLink: row.EvidenceLink ?? '',
+      remarks: row.Remarks ?? '',
+    });
+  }
+
+  async function saveEvent() {
+    if (!edit) return;
+    setSaving(true);
+    try {
+      await api(`/admin/corp-marketing/events/${edit.CorpEventID}`, {
+        method: 'PUT',
+        body: {
+          category: form.category || null,
+          eventName: form.eventName || null,
+          businessUnit: form.businessUnit || null,
+          responsiblePerson: form.responsiblePerson || null,
+          responsibleRole: form.responsibleRole || null,
+          location: form.location || null,
+          startDate: form.startDate || null,
+          endDate: form.endDate || null,
+          status: form.status,
+          plannedParticipants: numOrNull(form.plannedParticipants ?? ''),
+          actualParticipants: numOrNull(form.actualParticipants ?? ''),
+          leadsGenerated: numOrNull(form.leadsGenerated ?? ''),
+          conversions: numOrNull(form.conversions ?? ''),
+          plannedRevenue: numOrNull(form.plannedRevenue ?? ''),
+          actualRevenue: numOrNull(form.actualRevenue ?? ''),
+          approvedBudget: numOrNull(form.approvedBudget ?? ''),
+          actualCost: numOrNull(form.actualCost ?? ''),
+          reachImpressions: numOrNull(form.reachImpressions ?? ''),
+          engagements: numOrNull(form.engagements ?? ''),
+          satisfactionScore: numOrNull(form.satisfactionScore ?? ''),
+          kpiTarget: form.kpiTarget || null,
+          kpiActual: form.kpiActual || null,
+          evidenceLink: form.evidenceLink || null,
+          remarks: form.remarks || null,
+        },
+      });
+      toast.success(`${edit.EventCode} saved`);
+      setEdit(null);
+      await data.reload();
+      onRefresh();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to save event');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const F = (key: string, label: string, type: 'text' | 'number' | 'date' = 'text') => (
+    <div className="form-field" key={key}>
+      <label>{label}</label>
+      <input
+        type={type}
+        value={form[key] ?? ''}
+        onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+      />
+    </div>
+  );
+
+  return (
+    <div>
+      <div className="kpi-filters">
+        <div className="filter-group">
+          <Icon name="filter" />
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">All statuses</option>
+            <option value="Planned">Planned</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Completed">Completed</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div className="filter-group">
+          <Icon name="search" />
+          <input type="text" placeholder="Search events..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <div className="spacer" />
+        <span className="sub-text">{data.data?.total ?? items.length} events</span>
+      </div>
+
+      {data.loading ? <Loading /> : data.error ? (
+        <div className="empty" style={{ color: 'var(--danger)' }}>{data.error}</div>
+      ) : items.length === 0 ? <Empty message="No events match the filters" /> : (
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Event / Campaign</th>
+              <th>Category</th>
+              <th>BU</th>
+              <th>Dates</th>
+              <th>Status</th>
+              <th>Budget</th>
+              <th>Cost</th>
+              <th>Variance</th>
+              <th>Leads / Conv.</th>
+              <th>ROI %</th>
+              <th>Reach</th>
+              <th>Eng. %</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((row) => (
+              <tr key={row.CorpEventID}>
+                <td><code>{row.EventCode}</code></td>
+                <td>
+                  <div className="plan-title-cell">
+                    <strong>{row.EventName ?? <span className="sub-text">Untitled</span>}</strong>
+                    <span className="sub-text">{row.ResponsiblePerson ?? ''}{row.Location ? ` · ${row.Location}` : ''}</span>
+                  </div>
+                </td>
+                <td>{row.Category ?? '—'}</td>
+                <td>{row.BusinessUnit ?? '—'}</td>
+                <td className="date-cell">
+                  {row.StartDate ? `${row.StartDate}${row.EndDate ? ` → ${row.EndDate}` : ''}` : '—'}
+                  {row.Month ? <div className="sub-text">{MONTH_NAMES[row.Month - 1]} · W{row.IsoWeek}</div> : null}
+                </td>
+                <td><Badge tone={statusTone(row.Status)}>{row.Status}</Badge></td>
+                <td>{row.ApprovedBudget != null ? row.ApprovedBudget.toLocaleString() : '—'}</td>
+                <td>{row.ActualCost != null ? row.ActualCost.toLocaleString() : '—'}</td>
+                <td>{row.BudgetVariance != null ? row.BudgetVariance.toLocaleString() : '—'}</td>
+                <td>{row.LeadsGenerated ?? '—'} / {row.Conversions ?? '—'}{row.ConversionRate != null ? <span className="sub-text"> ({row.ConversionRate}%)</span> : null}</td>
+                <td>{row.ROIPercent != null ? `${row.ROIPercent}%` : '—'}</td>
+                <td>{row.ReachImpressions != null ? row.ReachImpressions.toLocaleString() : '—'}</td>
+                <td>{row.EngagementRate != null ? `${row.EngagementRate}%` : '—'}</td>
+                <td>
+                  <Button variant="ghost" size="sm" onClick={() => openEdit(row)}>
+                    <Icon name="pen" /> Edit
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <Modal open={!!edit} onClose={() => setEdit(null)} title={edit ? `Edit ${edit.EventCode}` : 'Edit event'} wide>
+        <div className="form-grid">
+          {F('eventName', 'Event / Campaign / Training')}
+          {F('category', 'Category')}
+          {F('businessUnit', 'Business Unit')}
+          {F('responsiblePerson', 'Responsible Person')}
+          {F('responsibleRole', 'Responsible Role')}
+          {F('location', 'Location')}
+          {F('startDate', 'Start Date', 'date')}
+          {F('endDate', 'End Date', 'date')}
+          <div className="form-field">
+            <label>Status</label>
+            <select value={form.status ?? 'Planned'} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+              <option value="Planned">Planned</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Completed">Completed</option>
+              <option value="Cancelled">Cancelled</option>
+            </select>
+          </div>
+          {F('plannedParticipants', 'Planned Participants', 'number')}
+          {F('actualParticipants', 'Actual Participants', 'number')}
+          {F('leadsGenerated', 'Leads Generated', 'number')}
+          {F('conversions', 'Conversions', 'number')}
+          {F('plannedRevenue', 'Planned Revenue (ETB)', 'number')}
+          {F('actualRevenue', 'Actual Revenue (ETB)', 'number')}
+          {F('approvedBudget', 'Approved Budget (ETB)', 'number')}
+          {F('actualCost', 'Actual Cost (ETB)', 'number')}
+          {F('reachImpressions', 'Reach / Impressions', 'number')}
+          {F('engagements', 'Engagements', 'number')}
+          {F('satisfactionScore', 'Satisfaction Score %', 'number')}
+          {F('kpiTarget', 'KPI Target / Measure')}
+          {F('kpiActual', 'KPI Actual / Result')}
+          {F('evidenceLink', 'Evidence / Link')}
+          <div className="form-field full-width">
+            <label>Remarks / Follow-up</label>
+            <textarea rows={2} value={form.remarks ?? ''} onChange={(e) => setForm((f) => ({ ...f, remarks: e.target.value }))} />
+          </div>
+        </div>
+        <div className="modal-actions">
+          <Button variant="ghost" onClick={() => setEdit(null)}>Cancel</Button>
+          <Button variant="primary" onClick={() => void saveEvent()} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Guide tab                                                                   */
+/* -------------------------------------------------------------------------- */
+function GuideTab() {
+  return (
+    <Card title="Corporate Marketing Activities Plan — User Guide">
+      <div className="guide-content">
+        <section className="guide-section">
+          <h3><Icon name="compass" /> What this module is</h3>
+          <p>
+            The annual corporate marketing plan from the workbook <b>KG Corporate Marketing_Plan_and_Activities.xlsx</b>:
+            49 parent activities, each with 4 sub-tasks, repeated every month (2,352 tasks per year), plus an
+            Events &amp; Campaigns register (EVT-001…EVT-100).
+          </p>
+        </section>
+        <section className="guide-section">
+          <h3><Icon name="list-check" /> Monthly workflow</h3>
+          <ul>
+            <li>Pick <b>year + month</b> on the Monthly Plan tab (196 tasks per month).</li>
+            <li>Assign a <b>Responsible Person</b>, set <b>Completion %</b> and <b>Evidence / Remarks</b>, then <b>Save</b> the row.</li>
+            <li>Verify with ✓ (or reject ✗ with a required note). Status flows <b>Not Verified → Verified / Rejected</b>.</li>
+            <li>Editing a <b>Rejected</b> task automatically returns it to <b>Not Verified</b> for re-checking.</li>
+            <li>Use the Dashboard tab for rollups by role and month.</li>
+          </ul>
+        </section>
+        <section className="guide-section">
+          <h3><Icon name="calendar-check" /> Events &amp; Campaigns</h3>
+          <p>
+            Edit any event row to record dates, owners, budgets and outcomes. The system derives Month, ISO week,
+            Conversion Rate, ROI % (revenue vs cost), Budget Variance, Attendance Rate and Engagement Rate automatically
+            (business rules from the workbook notes).
+          </p>
+        </section>
+        <section className="guide-section">
+          <h3><Icon name="file-arrow-up" /> Workbook import</h3>
+          <p>
+            Ask a developer to POST the workbook to <code>/api/v1/admin/corp-marketing/import</code>, or use it via API
+            testing tools: it upserts parents, tasks (by Task ID) and events (by Event Code) and <b>never overwrites</b>
+            the person, completion, status or remarks you have entered.
+          </p>
+        </section>
+      </div>
+    </Card>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Page                                                                        */
+/* -------------------------------------------------------------------------- */
+function CorpMarketingPage() {
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const now = new Date();
+  const [year, setYear] = useState(String(now.getFullYear()));
+  const [month, setMonth] = useState(String(now.getMonth() + 1));
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const summary = useFetch<CorpSummary>(`/admin/corp-marketing/summary?${qs({ year, month })}`, [year, month, refreshKey]);
+  const roles = useFetch<{ items: string[] }>('/admin/corp-marketing/roles', [refreshKey]);
+
+  function refreshAll() {
+    setRefreshKey((k) => k + 1);
+  }
+
+  const tabs = [
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'plan', label: 'Monthly Plan' },
+    { id: 'events', label: 'Events & Campaigns' },
+    { id: 'guide', label: 'User Guide' },
+  ];
+
+  return (
+    <Guard>
+      <RequireRole roles={['Administrator']}>
+        <div className="content">
+          <div className="kpi-hero">
+            <div className="kpi-hero-icon"><Icon name="bullhorn" /></div>
+            <div className="kpi-hero-info">
+              <h2>Corporate Marketing Activities Plan</h2>
+              <p>Monthly activity tasks, verification and events/campaigns register</p>
+            </div>
+            <div className="kpi-hero-stats">
+              <div className="kpi-hero-stat">
+                <div className="lhs">{summary.data?.tasks.total ?? '—'}</div>
+                <div className="lbl">Tasks</div>
+              </div>
+              <div className="kpi-hero-stat">
+                <div className="lhs">{summary.data?.tasks.verified ?? '—'}</div>
+                <div className="lbl">Verified</div>
+              </div>
+              <div className="kpi-hero-stat">
+                <div className="lhs">{summary.data?.tasks.avgCompletion != null ? `${summary.data.tasks.avgCompletion}%` : '—'}</div>
+                <div className="lbl">Completion</div>
+              </div>
+              <div className="kpi-hero-stat">
+                <div className="lhs">{summary.data?.events.total ?? '—'}</div>
+                <div className="lbl">Events</div>
+              </div>
+            </div>
+          </div>
+
+          <Tabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
+
+          {activeTab === 'dashboard' && (
+            <DashboardTab summary={summary.data} year={year} month={month} setYear={setYear} setMonth={setMonth} />
+          )}
+          {activeTab === 'plan' && (
+            <PlanTab year={year} month={month} setYear={setYear} setMonth={setMonth} roles={roles.data?.items ?? []} onRefresh={refreshAll} />
+          )}
+          {activeTab === 'events' && (
+            <EventsTab onRefresh={refreshAll} />
+          )}
+          {activeTab === 'guide' && (
+            <GuideTab />
+          )}
+        </div>
+      </RequireRole>
+    </Guard>
+  );
+}
+
+export default CorpMarketingPage;

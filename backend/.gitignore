@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Environment / secrets
+.env
+.env.local
+!.env.example
+
+# Logs
+*.log
+
+# Uploaded form files
+uploads/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local AI coding tools
+.codebuddy/
+# .opencoode/
+
+# Local editing history
+.history/
