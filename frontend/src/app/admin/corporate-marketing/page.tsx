@@ -1113,21 +1113,18 @@ function ImportWorkbookModal({
           </div>
         ) : result ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div className="grid-4" style={{ marginBottom: 8 }}>
+            <div className="kpi-overview-grid" style={{ marginBottom: 8 }}>
               <StatCard icon="file-text" label="Parents" value={result.parentsUpserted} tone="blue" />
               <StatCard icon="list-check" label="Tasks" value={result.tasksUpserted.toLocaleString()} tone="green" />
               <StatCard icon="calendar-check" label="Events" value={result.eventsUpserted} tone="amber" />
               <StatCard icon={result.errors.length ? 'circle-xmark' : 'circle-check'} label="Errors" value={result.errors.length} tone={result.errors.length ? 'red' : 'green'} />
             </div>
             {result.errors.length > 0 && (
-              <details style={{ border: '1px solid var(--danger)', borderRadius: 8, padding: 12 }}>
-                <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--danger)' }}>
-                  {result.errors.length} error(s) — click to expand
-                </summary>
-                <ul style={{ marginTop: 8, paddingLeft: 20, maxHeight: 200, overflow: 'auto' }}>
-                  {result.errors.map((e, i) => <li key={i} style={{ fontSize: 13, color: 'var(--danger)' }}>{e}</li>)}
+              <Card title={`Errors (${result.errors.length})`} className="error-card">
+                <ul style={{ margin: 0, paddingLeft: 20, maxHeight: 200, overflow: 'auto' }}>
+                  {result.errors.map((e, i) => <li key={i} style={{ fontSize: 13, color: 'var(--danger)', marginBottom: 6 }}>{e}</li>)}
                 </ul>
-              </details>
+              </Card>
             )}
           </div>
         ) : null}
