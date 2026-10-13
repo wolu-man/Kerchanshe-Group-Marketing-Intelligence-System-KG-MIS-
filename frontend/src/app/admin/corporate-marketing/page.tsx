@@ -71,13 +71,13 @@ function DashboardTab({
       </div>
       {!summary ? <Loading /> : (
         <>
-          <div className="grid-4" style={{ marginBottom: 16 }}>
+          <div className="kpi-overview-grid" style={{ marginBottom: 16 }}>
             <StatCard icon="chart-pie" label="Total tasks" value={summary.tasks.total} tone="blue" />
             <StatCard icon="circle-check" label="Verified" value={summary.tasks.verified} tone="green" />
             <StatCard icon="hourglass-half" label="Not verified" value={summary.tasks.notVerified} tone="amber" />
             <StatCard icon="circle-xmark" label="Rejected" value={summary.tasks.rejected} tone="red" />
           </div>
-          <div className="grid-4" style={{ marginBottom: 16 }}>
+          <div className="kpi-overview-grid" style={{ marginBottom: 16 }}>
             <StatCard icon="chart-simple" label="Avg completion" value={summary.tasks.avgCompletion != null ? `${summary.tasks.avgCompletion}%` : '—'} tone="blue" />
             <StatCard icon="user-check" label="Assigned" value={summary.tasks.assigned} sub="rows with a responsible person" tone="green" />
             <StatCard icon="calendar-check" label="Events planned" value={summary.events.planned} sub={`${summary.events.total} event shells`} tone="amber" />
@@ -370,7 +370,7 @@ function PlanTab({
         </Button>
       </div>
 
-      <div className="grid-4" style={{ marginBottom: 16 }}>
+      <div className="kpi-overview-grid" style={{ marginBottom: 16 }}>
         <StatCard icon="circle-check" label="Verified" value={stats.verified} tone="green" />
         <StatCard icon="hourglass-half" label="Not verified" value={stats.notVerified} tone="amber" />
         <StatCard icon="circle-xmark" label="Rejected" value={stats.rejected} tone="red" />
