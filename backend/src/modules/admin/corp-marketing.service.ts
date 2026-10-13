@@ -197,6 +197,8 @@ export async function listTasks(query: {
 }
 
 export async function updateTask(corpTaskId: number, data: {
+  taskName?: string;
+  responsibleRole?: string | null;
   responsiblePerson?: string | null;
   completionPercent?: number | null;
   evidenceRemarks?: string | null;
@@ -210,6 +212,14 @@ export async function updateTask(corpTaskId: number, data: {
   const sets: string[] = [];
   const updateRequest = db.request();
   updateRequest.input('CorpTaskID', sql.Int, corpTaskId);
+  if (data.taskName !== undefined) {
+    sets.push('TaskName = @TaskName');
+    updateRequest.input('TaskName', sql.NVarChar(500), data.taskName);
+  }
+  if (data.responsibleRole !== undefined) {
+    sets.push('ResponsibleRole = @ResponsibleRole');
+    updateRequest.input('ResponsibleRole', sql.NVarChar(200), data.responsibleRole);
+  }
   if (data.responsiblePerson !== undefined) {
     sets.push('ResponsiblePerson = @ResponsiblePerson');
     updateRequest.input('ResponsiblePerson', sql.NVarChar(200), data.responsiblePerson);
@@ -241,6 +251,108 @@ export async function updateTask(corpTaskId: number, data: {
   `);
 
   return { corpTaskId, requeued };
+}
+
+export async function createTask(data: {
+  planYear: number;
+  month: number;
+  parentCode: string;
+  parentName?: string | null;
+  taskName: string;
+  responsibleRole?: string | null;
+  responsiblePerson?: string | null;
+  completionPercent?: number | null;
+  evidenceRemarks?: string | null;
+}) {
+  const MONTH_ABBR = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const request = db.request();
+  request.input('PlanYear', sql.Int, data.planYear);
+  request.input('ParentCode', sql.NVarChar(20), data.parentCode);
+  const parent = await request.query(
+    'SELECT ParentCode FROM dbo.CorpMarketingPlanItem WHERE PlanYear = @PlanYear AND ParentCode = @ParentCode'
+  );
+
+  if (parent.recordset.length === 0) {
+    const p = db.request();
+    p.input('PlanYear', sql.Int, data.planYear);
+    p.input('ParentCode', sql.NVarChar(20), data.parentCode);
+    p.input('MainActivityKpi', sql.NVarChar(500), data.parentName ?? data.parentCode);
+    await p.query(`
+      INSERT INTO dbo.CorpMarketingPlanItem (PlanYear, ParentCode, MainActivityKpi)
+      VALUES (@PlanYear, @ParentCode, @MainActivityKpi)
+    `);
+  } else if (data.parentName) {
+    const p = db.request();
+    p.input('PlanYear', sql.Int, data.planYear);
+    p.input('ParentCode', sql.NVarChar(20), data.parentCode);
+    p.input('MainActivityKpi', sql.NVarChar(500), data.parentName);
+    await p.query(`
+      UPDATE dbo.CorpMarketingPlanItem SET MainActivityKpi = @MainActivityKpi
+      WHERE PlanYear = @PlanYear AND ParentCode = @ParentCode
+    `);
+  }
+
+  const idxRequest = db.request();
+  idxRequest.input('PlanYear', sql.Int, data.planYear);
+  idxRequest.input('ParentCode', sql.NVarChar(20), data.parentCode);
+  idxRequest.input('Month', sql.TinyInt, data.month);
+  const idxResult = await idxRequest.query(`
+    SELECT ISNULL(MAX(TaskIndex), 0) + 1 AS nextIndex
+    FROM dbo.CorpMarketingTask
+    WHERE PlanYear = @PlanYear AND ParentCode = @ParentCode AND Month = @Month
+  `);
+  const taskIndex = idxResult.recordset[0].nextIndex as number;
+
+  const prefix = `${MONTH_ABBR[data.month - 1]}-${data.parentCode}`;
+  const idRequest = db.request();
+  idRequest.input('Prefix', sql.NVarChar(50), `${prefix}-%`);
+  const idResult = await idRequest.query(`
+    SELECT TOP 1 TaskId FROM dbo.CorpMarketingTask
+    WHERE TaskId LIKE @Prefix ORDER BY TaskId DESC
+  `);
+  let seq = 1;
+  if (idResult.recordset.length > 0) {
+    const last = String(idResult.recordset[0].TaskId);
+    const m = last.match(/-(\d+)$/);
+    if (m) seq = Number(m[1]) + 1;
+  }
+  let taskId = `${prefix}-${String(seq).padStart(2, '0')}`;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const c = db.request();
+    c.input('TaskId', sql.NVarChar(50), taskId);
+    const dupe = await c.query('SELECT 1 FROM dbo.CorpMarketingTask WHERE TaskId = @TaskId');
+    if (dupe.recordset.length === 0) break;
+    seq += 1;
+    taskId = `${prefix}-${String(seq).padStart(2, '0')}`;
+  }
+
+  const insert = db.request();
+  insert.input('PlanYear', sql.Int, data.planYear);
+  insert.input('Month', sql.TinyInt, data.month);
+  insert.input('TaskId', sql.NVarChar(50), taskId);
+  insert.input('ParentCode', sql.NVarChar(20), data.parentCode);
+  insert.input('TaskIndex', sql.Int, taskIndex);
+  insert.input('TaskName', sql.NVarChar(500), data.taskName);
+  insert.input('ResponsibleRole', sql.NVarChar(200), data.responsibleRole ?? null);
+  insert.input('ResponsiblePerson', sql.NVarChar(200), data.responsiblePerson ?? null);
+  insert.input('CompletionPercent', sql.Decimal(5, 2), data.completionPercent ?? null);
+  insert.input('EvidenceRemarks', sql.NVarChar(2000), data.evidenceRemarks ?? null);
+  const inserted = await insert.query(`
+    INSERT INTO dbo.CorpMarketingTask
+      (PlanYear, Month, TaskId, ParentCode, TaskIndex, TaskName, ResponsibleRole, ResponsiblePerson, CompletionPercent, EvidenceRemarks)
+    OUTPUT INSERTED.CorpTaskID
+    VALUES (@PlanYear, @Month, @TaskId, @ParentCode, @TaskIndex, @TaskName, @ResponsibleRole, @ResponsiblePerson, @CompletionPercent, @EvidenceRemarks)
+  `);
+
+  return { corpTaskId: inserted.recordset[0].CorpTaskID as number, taskId };
+}
+
+export async function deleteTask(corpTaskId: number) {
+  const request = db.request();
+  request.input('CorpTaskID', sql.Int, corpTaskId);
+  const result = await request.query('DELETE FROM dbo.CorpMarketingTask WHERE CorpTaskID = @CorpTaskID');
+  if ((result.rowsAffected[0] ?? 0) === 0) throw new Error('TASK_NOT_FOUND');
+  return { deleted: true, corpTaskId };
 }
 
 export async function verifyTasks(data: {
@@ -352,6 +464,105 @@ export async function listEvents(query: { status?: string; search?: string }) {
   return { items, total: items.length };
 }
 
+export async function createEvent(data: {
+  category?: string | null;
+  eventName: string;
+  businessUnit?: string | null;
+  responsiblePerson?: string | null;
+  responsibleRole?: string | null;
+  location?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  status?: string;
+  plannedParticipants?: number | null;
+  actualParticipants?: number | null;
+  leadsGenerated?: number | null;
+  conversions?: number | null;
+  plannedRevenue?: number | null;
+  actualRevenue?: number | null;
+  approvedBudget?: number | null;
+  actualCost?: number | null;
+  reachImpressions?: number | null;
+  engagements?: number | null;
+  satisfactionScore?: number | null;
+  kpiTarget?: string | null;
+  kpiActual?: string | null;
+  evidenceLink?: string | null;
+  remarks?: string | null;
+}) {
+  const codeResult = await db.request().query(`
+    SELECT TOP 1 EventCode FROM dbo.CorpMarketingEvent
+    WHERE EventCode LIKE 'EVT-%' ORDER BY EventCode DESC
+  `);
+  let seq = 1;
+  if (codeResult.recordset.length > 0) {
+    const m = String(codeResult.recordset[0].EventCode).match(/(\d+)$/);
+    if (m) seq = Number(m[1]) + 1;
+  }
+  let eventCode = `EVT-${String(seq).padStart(3, '0')}`;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const c = db.request();
+    c.input('EventCode', sql.NVarChar(20), eventCode);
+    const dupe = await c.query('SELECT 1 FROM dbo.CorpMarketingEvent WHERE EventCode = @EventCode');
+    if (dupe.recordset.length === 0) break;
+    seq += 1;
+    eventCode = `EVT-${String(seq).padStart(3, '0')}`;
+  }
+
+  const r = db.request();
+  r.input('EventCode', sql.NVarChar(20), eventCode);
+  r.input('EventName', sql.NVarChar(300), data.eventName);
+  r.input('Category', sql.NVarChar(100), data.category ?? null);
+  r.input('BusinessUnit', sql.NVarChar(100), data.businessUnit ?? null);
+  r.input('ResponsiblePerson', sql.NVarChar(200), data.responsiblePerson ?? null);
+  r.input('ResponsibleRole', sql.NVarChar(200), data.responsibleRole ?? null);
+  r.input('Location', sql.NVarChar(200), data.location ?? null);
+  r.input('StartDate', sql.Date, data.startDate ?? null);
+  r.input('EndDate', sql.Date, data.endDate ?? null);
+  r.input('Status', sql.NVarChar(30), data.status ?? 'Planned');
+  r.input('PlannedParticipants', sql.Int, data.plannedParticipants ?? null);
+  r.input('ActualParticipants', sql.Int, data.actualParticipants ?? null);
+  r.input('LeadsGenerated', sql.Int, data.leadsGenerated ?? null);
+  r.input('Conversions', sql.Int, data.conversions ?? null);
+  r.input('PlannedRevenue', sql.Decimal(18, 2), data.plannedRevenue ?? null);
+  r.input('ActualRevenue', sql.Decimal(18, 2), data.actualRevenue ?? null);
+  r.input('ApprovedBudget', sql.Decimal(18, 2), data.approvedBudget ?? null);
+  r.input('ActualCost', sql.Decimal(18, 2), data.actualCost ?? null);
+  r.input('ReachImpressions', sql.BigInt, data.reachImpressions ?? null);
+  r.input('Engagements', sql.Int, data.engagements ?? null);
+  r.input('SatisfactionScore', sql.Decimal(5, 2), data.satisfactionScore ?? null);
+  r.input('KpiTarget', sql.NVarChar(500), data.kpiTarget ?? null);
+  r.input('KpiActual', sql.NVarChar(500), data.kpiActual ?? null);
+  r.input('EvidenceLink', sql.NVarChar(500), data.evidenceLink ?? null);
+  r.input('Remarks', sql.NVarChar(2000), data.remarks ?? null);
+
+  const inserted = await r.query(`
+    INSERT INTO dbo.CorpMarketingEvent
+      (EventCode, Category, EventName, BusinessUnit, ResponsiblePerson, ResponsibleRole, Location,
+       StartDate, EndDate, Status, PlannedParticipants, ActualParticipants, LeadsGenerated, Conversions,
+       PlannedRevenue, ActualRevenue, ApprovedBudget, ActualCost, ReachImpressions, Engagements,
+       SatisfactionScore, KpiTarget, KpiActual, EvidenceLink, Remarks)
+    OUTPUT INSERTED.CorpEventID
+    VALUES (@EventCode, @Category, @EventName, @BusinessUnit, @ResponsiblePerson, @ResponsibleRole, @Location,
+       @StartDate, @EndDate, @Status, @PlannedParticipants, @ActualParticipants, @LeadsGenerated, @Conversions,
+       @PlannedRevenue, @ActualRevenue, @ApprovedBudget, @ActualCost, @ReachImpressions, @Engagements,
+       @SatisfactionScore, @KpiTarget, @KpiActual, @EvidenceLink, @Remarks)
+  `);
+
+  const created = await db.request()
+    .input('CorpEventID', sql.Int, inserted.recordset[0].CorpEventID as number)
+    .query('SELECT * FROM dbo.CorpMarketingEvent WHERE CorpEventID = @CorpEventID');
+  return deriveEvent(created.recordset[0] as Record<string, unknown>);
+}
+
+export async function deleteEvent(corpEventId: number) {
+  const request = db.request();
+  request.input('CorpEventID', sql.Int, corpEventId);
+  const result = await request.query('DELETE FROM dbo.CorpMarketingEvent WHERE CorpEventID = @CorpEventID');
+  if ((result.rowsAffected[0] ?? 0) === 0) throw new Error('EVENT_NOT_FOUND');
+  return { deleted: true, corpEventId };
+}
+
 export async function updateEvent(corpEventId: number, data: {
   category?: string | null;
   eventName?: string | null;
@@ -442,4 +653,19 @@ export async function getRoles() {
     WHERE ResponsibleRole IS NOT NULL ORDER BY ResponsibleRole
   `);
   return result.recordset.map((r) => r.ResponsibleRole as string);
+}
+
+export async function listParents(year?: number) {
+  const y = year || new Date().getFullYear();
+  const request = db.request();
+  request.input('PlanYear', sql.Int, y);
+  const result = await request.query(`
+    SELECT p.ParentCode, p.MainActivityKpi, COUNT(t.CorpTaskID) AS taskCount
+    FROM dbo.CorpMarketingPlanItem p
+    LEFT JOIN dbo.CorpMarketingTask t ON t.PlanYear = p.PlanYear AND t.ParentCode = p.ParentCode
+    WHERE p.PlanYear = @PlanYear
+    GROUP BY p.ParentCode, p.MainActivityKpi
+    ORDER BY p.ParentCode
+  `);
+  return result.recordset;
 }

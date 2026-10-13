@@ -23,12 +23,17 @@ import {
 import { importKpiWorkbook } from './kpi-import.service';
 import {
   listTasks as listCorpTasks,
+  createTask as createCorpTask,
   updateTask as updateCorpTask,
+  deleteTask as deleteCorpTask,
   verifyTasks as verifyCorpTasks,
   getTaskSummary as getCorpTaskSummary,
   listEvents as listCorpEvents,
+  createEvent as createCorpEvent,
   updateEvent as updateCorpEvent,
+  deleteEvent as deleteCorpEvent,
   getRoles as getCorpRoles,
+  listParents as listCorpParents,
 } from './corp-marketing.service';
 import { importCorpMarketingWorkbook } from './corp-import.service';
 import {
@@ -1093,6 +1098,20 @@ const verifySchema = z.object({
 // Corporate Marketing Activities Plan
 // ---------------------------------------------------------------------------
 const corpTaskUpdateSchema = z.object({
+  taskName: z.string().min(1).max(500).optional(),
+  responsibleRole: z.string().max(200).nullable().optional(),
+  responsiblePerson: z.string().max(200).nullable().optional(),
+  completionPercent: z.number().min(0).max(100).nullable().optional(),
+  evidenceRemarks: z.string().max(2000).nullable().optional(),
+});
+
+const corpTaskCreateSchema = z.object({
+  planYear: z.number().int().min(2020).max(2100),
+  month: z.number().int().min(1).max(12),
+  parentCode: z.string().min(1).max(20),
+  parentName: z.string().max(500).nullable().optional(),
+  taskName: z.string().min(1).max(500),
+  responsibleRole: z.string().max(200).nullable().optional(),
   responsiblePerson: z.string().max(200).nullable().optional(),
   completionPercent: z.number().min(0).max(100).nullable().optional(),
   evidenceRemarks: z.string().max(2000).nullable().optional(),
@@ -1123,6 +1142,10 @@ const corpEventUpdateSchema = z.object({
   kpiActual: z.string().max(500).nullable().optional(),
   evidenceLink: z.string().max(500).nullable().optional(),
   remarks: z.string().max(2000).nullable().optional(),
+});
+
+const corpEventCreateSchema = corpEventUpdateSchema.extend({
+  eventName: z.string().min(1).max(300),
 });
 
 router.get(
@@ -1596,6 +1619,32 @@ router.get(
 );
 
 router.get(
+  '/corp-marketing/parents',
+  can('admin.users'),
+  asyncHandler(async (req, res) => {
+    const items = await listCorpParents(req.query.year ? Number(req.query.year) : undefined);
+    res.json({ items });
+  })
+);
+
+router.post(
+  '/corp-marketing/tasks',
+  can('admin.users'),
+  validate(corpTaskCreateSchema),
+  asyncHandler(async (req, res) => {
+    const result = await createCorpTask(req.body);
+    await logAudit(req, {
+      userId: req.user!.userId,
+      action: 'CREATE',
+      entity: 'CorpMarketingTask',
+      entityId: result.corpTaskId,
+      detail: { taskId: result.taskId, ...req.body },
+    });
+    res.status(201).json(result);
+  })
+);
+
+router.get(
   '/corp-marketing/summary',
   can('admin.users'),
   asyncHandler(async (req, res) => {
@@ -1619,6 +1668,22 @@ router.put(
       entity: 'CorpMarketingTask',
       entityId: Number(req.params.id),
       detail: req.body,
+    });
+    res.json(result);
+  })
+);
+
+router.delete(
+  '/corp-marketing/tasks/:id',
+  can('admin.users'),
+  asyncHandler(async (req, res) => {
+    const result = await deleteCorpTask(Number(req.params.id));
+    await logAudit(req, {
+      userId: req.user!.userId,
+      action: 'DELETE',
+      entity: 'CorpMarketingTask',
+      entityId: Number(req.params.id),
+      detail: result,
     });
     res.json(result);
   })
@@ -1655,6 +1720,23 @@ router.get(
   })
 );
 
+router.post(
+  '/corp-marketing/events',
+  can('admin.users'),
+  validate(corpEventCreateSchema),
+  asyncHandler(async (req, res) => {
+    const result = await createCorpEvent(req.body);
+    await logAudit(req, {
+      userId: req.user!.userId,
+      action: 'CREATE',
+      entity: 'CorpMarketingEvent',
+      entityId: result.CorpEventID,
+      detail: { eventCode: result.EventCode, ...req.body },
+    });
+    res.status(201).json(result);
+  })
+);
+
 router.put(
   '/corp-marketing/events/:id',
   can('admin.users'),
@@ -1667,6 +1749,22 @@ router.put(
       entity: 'CorpMarketingEvent',
       entityId: Number(req.params.id),
       detail: { eventCode: result.EventCode, ...req.body },
+    });
+    res.json(result);
+  })
+);
+
+router.delete(
+  '/corp-marketing/events/:id',
+  can('admin.users'),
+  asyncHandler(async (req, res) => {
+    const result = await deleteCorpEvent(Number(req.params.id));
+    await logAudit(req, {
+      userId: req.user!.userId,
+      action: 'DELETE',
+      entity: 'CorpMarketingEvent',
+      entityId: Number(req.params.id),
+      detail: result,
     });
     res.json(result);
   })

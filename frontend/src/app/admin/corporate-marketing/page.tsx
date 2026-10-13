@@ -131,6 +131,132 @@ function PlanTab({
   );
   const items = data.data?.items ?? [];
 
+  const parents = useFetch<{ items: { ParentCode: string; MainActivityKpi: string | null }[] }>(
+    `/admin/corp-marketing/parents?${qs({ year })}`,
+    [year]
+  );
+
+  const [creating, setCreating] = useState(false);
+  const [createForm, setCreateForm] = useState<Record<string, string>>({});
+  const [createSaving, setCreateSaving] = useState(false);
+  const [editing, setEditing] = useState<CorpTask | null>(null);
+  const [editForm, setEditForm] = useState<Record<string, string>>({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [deleting, setDeleting] = useState<CorpTask | null>(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+
+  function openCreate() {
+    setCreateForm({
+      month: month || String(now.getMonth() + 1),
+      parentCode: '',
+      newParentCode: '',
+      newParentName: '',
+      taskName: '',
+      responsibleRole: '',
+      responsiblePerson: '',
+      completionPercent: '',
+      evidenceRemarks: '',
+    });
+    setCreating(true);
+  }
+
+  async function saveCreate() {
+    const f = createForm;
+    const isNewParent = f.parentCode === '__new__';
+    const parentCode = isNewParent ? f.newParentCode.trim() : f.parentCode;
+    if (!parentCode) { toast.error('Select or enter a parent activity'); return; }
+    if (isNewParent && !f.newParentName.trim()) { toast.error('New parent needs a name'); return; }
+    if (!f.taskName.trim()) { toast.error('Task name is required'); return; }
+    const completion = numOrNull(f.completionPercent ?? '');
+    if (completion != null && (completion < 0 || completion > 100)) {
+      toast.error('Completion must be between 0 and 100');
+      return;
+    }
+    setCreateSaving(true);
+    try {
+      const res = await api<{ taskId: string }>('/admin/corp-marketing/tasks', {
+        method: 'POST',
+        body: {
+          planYear: Number(year),
+          month: Number(f.month),
+          parentCode,
+          parentName: isNewParent ? f.newParentName.trim() : undefined,
+          taskName: f.taskName.trim(),
+          responsibleRole: f.responsibleRole.trim() || null,
+          responsiblePerson: f.responsiblePerson.trim() || null,
+          completionPercent: completion,
+          evidenceRemarks: f.evidenceRemarks.trim() || null,
+        },
+      });
+      toast.success(`Task ${res.taskId} created`);
+      setCreating(false);
+      await data.reload();
+      await parents.reload();
+      onRefresh();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to create task');
+    } finally {
+      setCreateSaving(false);
+    }
+  }
+
+  function openEdit(row: CorpTask) {
+    setEditing(row);
+    setEditForm({
+      taskName: row.TaskName,
+      responsibleRole: row.ResponsibleRole ?? '',
+      responsiblePerson: row.ResponsiblePerson ?? '',
+      completionPercent: row.CompletionPercent != null ? String(row.CompletionPercent) : '',
+      evidenceRemarks: row.EvidenceRemarks ?? '',
+    });
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    const completion = numOrNull(editForm.completionPercent ?? '');
+    if (completion != null && (completion < 0 || completion > 100)) {
+      toast.error('Completion must be between 0 and 100');
+      return;
+    }
+    setEditSaving(true);
+    try {
+      await api(`/admin/corp-marketing/tasks/${editing.CorpTaskID}`, {
+        method: 'PUT',
+        body: {
+          taskName: editForm.taskName.trim(),
+          responsibleRole: editForm.responsibleRole.trim() || null,
+          responsiblePerson: editForm.responsiblePerson.trim() || null,
+          completionPercent: completion,
+          evidenceRemarks: editForm.evidenceRemarks.trim() || null,
+        },
+      });
+      toast.success(`${editing.TaskId} saved`);
+      setEditing(null);
+      await data.reload();
+      onRefresh();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to save task');
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleting) return;
+    setDeleteSaving(true);
+    try {
+      await api(`/admin/corp-marketing/tasks/${deleting.CorpTaskID}`, { method: 'DELETE' });
+      toast.success(`${deleting.TaskId} deleted`);
+      setDeleting(null);
+      await data.reload();
+      onRefresh();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to delete task');
+    } finally {
+      setDeleteSaving(false);
+    }
+  }
+
   const stats = useMemo(() => {
     const s = { verified: 0, notVerified: 0, rejected: 0 };
     for (const i of items) {
@@ -239,6 +365,9 @@ function PlanTab({
         </div>
         <div className="spacer" />
         <span className="sub-text">{data.data?.total ?? items.length} tasks</span>
+        <Button variant="primary" size="sm" onClick={openCreate}>
+          <Icon name="plus" /> Add task
+        </Button>
       </div>
 
       <div className="grid-4" style={{ marginBottom: 16 }}>
@@ -320,6 +449,9 @@ function PlanTab({
                         <Button variant="primary" size="sm" disabled={d.saving} onClick={() => void saveRow(row)}>
                           {d.saving ? '...' : 'Save'}
                         </Button>
+                        <Button variant="ghost" size="sm" title="Edit details" onClick={() => openEdit(row)}>
+                          <Icon name="pen" />
+                        </Button>
                         {row.Status === 'Not Verified' ? (
                           <>
                             <Button variant="ghost" size="sm" title="Verify" onClick={() => void act(row, 'Verified')}>
@@ -330,6 +462,9 @@ function PlanTab({
                             </Button>
                           </>
                         ) : null}
+                        <Button variant="ghost" size="sm" title="Delete task" onClick={() => setDeleting(row)}>
+                          <Icon name="trash" />
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -339,6 +474,105 @@ function PlanTab({
           </tbody>
         </table>
       )}
+
+      <Modal open={creating} onClose={() => setCreating(false)} title="Add task" wide>
+        <div className="form-grid">
+          <div className="form-field">
+            <label>Month *</label>
+            <select value={createForm.month ?? ''} onChange={(e) => setCreateForm((f) => ({ ...f, month: e.target.value }))}>
+              {MONTH_NAMES.map((m, i) => <option key={m} value={String(i + 1)}>{m}</option>)}
+            </select>
+          </div>
+          <div className="form-field">
+            <label>Parent activity *</label>
+            <select value={createForm.parentCode ?? ''} onChange={(e) => setCreateForm((f) => ({ ...f, parentCode: e.target.value }))}>
+              <option value="">Select parent…</option>
+              {(parents.data?.items ?? []).map((p) => (
+                <option key={p.ParentCode} value={p.ParentCode}>{p.ParentCode} — {p.MainActivityKpi ?? ''}</option>
+              ))}
+              <option value="__new__">+ New parent activity…</option>
+            </select>
+          </div>
+          {createForm.parentCode === '__new__' ? (
+            <>
+              <div className="form-field">
+                <label>New parent code *</label>
+                <input type="text" maxLength={20} placeholder="e.g. MK-001" value={createForm.newParentCode ?? ''} onChange={(e) => setCreateForm((f) => ({ ...f, newParentCode: e.target.value }))} />
+              </div>
+              <div className="form-field">
+                <label>New parent name *</label>
+                <input type="text" maxLength={500} value={createForm.newParentName ?? ''} onChange={(e) => setCreateForm((f) => ({ ...f, newParentName: e.target.value }))} />
+              </div>
+            </>
+          ) : null}
+          <div className="form-field full-width">
+            <label>Task name *</label>
+            <input type="text" maxLength={500} value={createForm.taskName ?? ''} onChange={(e) => setCreateForm((f) => ({ ...f, taskName: e.target.value }))} />
+          </div>
+          <div className="form-field">
+            <label>Responsible role</label>
+            <input type="text" list="corp-roles" value={createForm.responsibleRole ?? ''} onChange={(e) => setCreateForm((f) => ({ ...f, responsibleRole: e.target.value }))} />
+            <datalist id="corp-roles">
+              {roles.map((r) => <option key={r} value={r} />)}
+            </datalist>
+          </div>
+          <div className="form-field">
+            <label>Responsible person</label>
+            <input type="text" value={createForm.responsiblePerson ?? ''} onChange={(e) => setCreateForm((f) => ({ ...f, responsiblePerson: e.target.value }))} />
+          </div>
+          <div className="form-field">
+            <label>Completion %</label>
+            <input type="number" min={0} max={100} value={createForm.completionPercent ?? ''} onChange={(e) => setCreateForm((f) => ({ ...f, completionPercent: e.target.value }))} />
+          </div>
+          <div className="form-field full-width">
+            <label>Evidence / Remarks</label>
+            <textarea rows={2} maxLength={2000} value={createForm.evidenceRemarks ?? ''} onChange={(e) => setCreateForm((f) => ({ ...f, evidenceRemarks: e.target.value }))} />
+          </div>
+        </div>
+        <div className="modal-actions">
+          <Button variant="ghost" onClick={() => setCreating(false)}>Cancel</Button>
+          <Button variant="primary" onClick={() => void saveCreate()} disabled={createSaving}>{createSaving ? 'Saving…' : 'Create task'}</Button>
+        </div>
+      </Modal>
+
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing ? `Edit ${editing.TaskId}` : 'Edit task'} wide>
+        <div className="form-grid">
+          <div className="form-field full-width">
+            <label>Task name *</label>
+            <input type="text" maxLength={500} value={editForm.taskName ?? ''} onChange={(e) => setEditForm((f) => ({ ...f, taskName: e.target.value }))} />
+          </div>
+          <div className="form-field">
+            <label>Responsible role</label>
+            <input type="text" list="corp-roles" value={editForm.responsibleRole ?? ''} onChange={(e) => setEditForm((f) => ({ ...f, responsibleRole: e.target.value }))} />
+          </div>
+          <div className="form-field">
+            <label>Responsible person</label>
+            <input type="text" value={editForm.responsiblePerson ?? ''} onChange={(e) => setEditForm((f) => ({ ...f, responsiblePerson: e.target.value }))} />
+          </div>
+          <div className="form-field">
+            <label>Completion %</label>
+            <input type="number" min={0} max={100} value={editForm.completionPercent ?? ''} onChange={(e) => setEditForm((f) => ({ ...f, completionPercent: e.target.value }))} />
+          </div>
+          <div className="form-field full-width">
+            <label>Evidence / Remarks</label>
+            <textarea rows={2} maxLength={2000} value={editForm.evidenceRemarks ?? ''} onChange={(e) => setEditForm((f) => ({ ...f, evidenceRemarks: e.target.value }))} />
+          </div>
+        </div>
+        <div className="modal-actions">
+          <Button variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
+          <Button variant="primary" onClick={() => void saveEdit()} disabled={editSaving}>{editSaving ? 'Saving…' : 'Save'}</Button>
+        </div>
+      </Modal>
+
+      <Modal open={!!deleting} onClose={() => setDeleting(null)} title={deleting ? `Delete ${deleting.TaskId}?` : 'Delete task'}>
+        <p>
+          Permanently delete task <b>{deleting?.TaskId}</b> ({deleting?.TaskName})? This cannot be undone.
+        </p>
+        <div className="modal-actions">
+          <Button variant="ghost" onClick={() => setDeleting(null)}>Cancel</Button>
+          <Button variant="primary" onClick={() => void confirmDelete()} disabled={deleteSaving}>{deleteSaving ? 'Deleting…' : 'Delete'}</Button>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -350,8 +584,11 @@ function EventsTab({ onRefresh }: { onRefresh: () => void }) {
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
   const [edit, setEdit] = useState<CorpEvent | null>(null);
+  const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<CorpEvent | null>(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
 
   const data = useFetch<{ items: CorpEvent[]; total: number }>(
     `/admin/corp-marketing/events?${qs({ status, search })}`,
@@ -359,7 +596,23 @@ function EventsTab({ onRefresh }: { onRefresh: () => void }) {
   );
   const items = data.data?.items ?? [];
 
+  const EMPTY_FORM = {
+    category: '', eventName: '', businessUnit: '', responsiblePerson: '', responsibleRole: '',
+    location: '', startDate: '', endDate: '', status: 'Planned',
+    plannedParticipants: '', actualParticipants: '', leadsGenerated: '', conversions: '',
+    plannedRevenue: '', actualRevenue: '', approvedBudget: '', actualCost: '',
+    reachImpressions: '', engagements: '', satisfactionScore: '',
+    kpiTarget: '', kpiActual: '', evidenceLink: '', remarks: '',
+  };
+
+  function openCreate() {
+    setEdit(null);
+    setForm({ ...EMPTY_FORM });
+    setCreating(true);
+  }
+
   function openEdit(row: CorpEvent) {
+    setCreating(false);
     setEdit(row);
     setForm({
       category: row.Category ?? '',
@@ -390,37 +643,31 @@ function EventsTab({ onRefresh }: { onRefresh: () => void }) {
   }
 
   async function saveEvent() {
+    if (creating) {
+      if (!form.eventName?.trim()) { toast.error('Event name is required'); return; }
+      setSaving(true);
+      try {
+        const created = await api<CorpEvent>('/admin/corp-marketing/events', {
+          method: 'POST',
+          body: eventBody(),
+        });
+        toast.success(`${created.EventCode} created`);
+        setCreating(false);
+        await data.reload();
+        onRefresh();
+      } catch (err) {
+        toast.error(err instanceof ApiError ? err.message : 'Failed to create event');
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     if (!edit) return;
     setSaving(true);
     try {
       await api(`/admin/corp-marketing/events/${edit.CorpEventID}`, {
         method: 'PUT',
-        body: {
-          category: form.category || null,
-          eventName: form.eventName || null,
-          businessUnit: form.businessUnit || null,
-          responsiblePerson: form.responsiblePerson || null,
-          responsibleRole: form.responsibleRole || null,
-          location: form.location || null,
-          startDate: form.startDate || null,
-          endDate: form.endDate || null,
-          status: form.status,
-          plannedParticipants: numOrNull(form.plannedParticipants ?? ''),
-          actualParticipants: numOrNull(form.actualParticipants ?? ''),
-          leadsGenerated: numOrNull(form.leadsGenerated ?? ''),
-          conversions: numOrNull(form.conversions ?? ''),
-          plannedRevenue: numOrNull(form.plannedRevenue ?? ''),
-          actualRevenue: numOrNull(form.actualRevenue ?? ''),
-          approvedBudget: numOrNull(form.approvedBudget ?? ''),
-          actualCost: numOrNull(form.actualCost ?? ''),
-          reachImpressions: numOrNull(form.reachImpressions ?? ''),
-          engagements: numOrNull(form.engagements ?? ''),
-          satisfactionScore: numOrNull(form.satisfactionScore ?? ''),
-          kpiTarget: form.kpiTarget || null,
-          kpiActual: form.kpiActual || null,
-          evidenceLink: form.evidenceLink || null,
-          remarks: form.remarks || null,
-        },
+        body: eventBody(),
       });
       toast.success(`${edit.EventCode} saved`);
       setEdit(null);
@@ -430,6 +677,51 @@ function EventsTab({ onRefresh }: { onRefresh: () => void }) {
       toast.error(err instanceof ApiError ? err.message : 'Failed to save event');
     } finally {
       setSaving(false);
+    }
+  }
+
+  function eventBody() {
+    return {
+      category: form.category || null,
+      eventName: form.eventName || null,
+      businessUnit: form.businessUnit || null,
+      responsiblePerson: form.responsiblePerson || null,
+      responsibleRole: form.responsibleRole || null,
+      location: form.location || null,
+      startDate: form.startDate || null,
+      endDate: form.endDate || null,
+      status: form.status,
+      plannedParticipants: numOrNull(form.plannedParticipants ?? ''),
+      actualParticipants: numOrNull(form.actualParticipants ?? ''),
+      leadsGenerated: numOrNull(form.leadsGenerated ?? ''),
+      conversions: numOrNull(form.conversions ?? ''),
+      plannedRevenue: numOrNull(form.plannedRevenue ?? ''),
+      actualRevenue: numOrNull(form.actualRevenue ?? ''),
+      approvedBudget: numOrNull(form.approvedBudget ?? ''),
+      actualCost: numOrNull(form.actualCost ?? ''),
+      reachImpressions: numOrNull(form.reachImpressions ?? ''),
+      engagements: numOrNull(form.engagements ?? ''),
+      satisfactionScore: numOrNull(form.satisfactionScore ?? ''),
+      kpiTarget: form.kpiTarget || null,
+      kpiActual: form.kpiActual || null,
+      evidenceLink: form.evidenceLink || null,
+      remarks: form.remarks || null,
+    };
+  }
+
+  async function confirmDelete() {
+    if (!deleting) return;
+    setDeleteSaving(true);
+    try {
+      await api(`/admin/corp-marketing/events/${deleting.CorpEventID}`, { method: 'DELETE' });
+      toast.success(`${deleting.EventCode} deleted`);
+      setDeleting(null);
+      await data.reload();
+      onRefresh();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to delete event');
+    } finally {
+      setDeleteSaving(false);
     }
   }
 
@@ -463,6 +755,9 @@ function EventsTab({ onRefresh }: { onRefresh: () => void }) {
         </div>
         <div className="spacer" />
         <span className="sub-text">{data.data?.total ?? items.length} events</span>
+        <Button variant="primary" size="sm" onClick={openCreate}>
+          <Icon name="plus" /> Add event
+        </Button>
       </div>
 
       {data.loading ? <Loading /> : data.error ? (
@@ -512,9 +807,14 @@ function EventsTab({ onRefresh }: { onRefresh: () => void }) {
                 <td>{row.ReachImpressions != null ? row.ReachImpressions.toLocaleString() : '—'}</td>
                 <td>{row.EngagementRate != null ? `${row.EngagementRate}%` : '—'}</td>
                 <td>
-                  <Button variant="ghost" size="sm" onClick={() => openEdit(row)}>
-                    <Icon name="pen" /> Edit
-                  </Button>
+                  <div className="action-btns">
+                    <Button variant="ghost" size="sm" onClick={() => openEdit(row)}>
+                      <Icon name="pen" /> Edit
+                    </Button>
+                    <Button variant="ghost" size="sm" title="Delete event" onClick={() => setDeleting(row)}>
+                      <Icon name="trash" />
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -522,7 +822,12 @@ function EventsTab({ onRefresh }: { onRefresh: () => void }) {
         </table>
       )}
 
-      <Modal open={!!edit} onClose={() => setEdit(null)} title={edit ? `Edit ${edit.EventCode}` : 'Edit event'} wide>
+      <Modal
+        open={creating || !!edit}
+        onClose={() => { setCreating(false); setEdit(null); }}
+        title={creating ? 'Add event' : edit ? `Edit ${edit.EventCode}` : 'Edit event'}
+        wide
+      >
         <div className="form-grid">
           {F('eventName', 'Event / Campaign / Training')}
           {F('category', 'Category')}
@@ -561,8 +866,20 @@ function EventsTab({ onRefresh }: { onRefresh: () => void }) {
           </div>
         </div>
         <div className="modal-actions">
-          <Button variant="ghost" onClick={() => setEdit(null)}>Cancel</Button>
-          <Button variant="primary" onClick={() => void saveEvent()} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
+          <Button variant="ghost" onClick={() => { setCreating(false); setEdit(null); }}>Cancel</Button>
+          <Button variant="primary" onClick={() => void saveEvent()} disabled={saving}>
+            {saving ? 'Saving...' : creating ? 'Create event' : 'Save'}
+          </Button>
+        </div>
+      </Modal>
+
+      <Modal open={!!deleting} onClose={() => setDeleting(null)} title={deleting ? `Delete ${deleting.EventCode}?` : 'Delete event'}>
+        <p>
+          Permanently delete event <b>{deleting?.EventCode}</b> ({deleting?.EventName ?? 'untitled'})? This cannot be undone.
+        </p>
+        <div className="modal-actions">
+          <Button variant="ghost" onClick={() => setDeleting(null)}>Cancel</Button>
+          <Button variant="primary" onClick={() => void confirmDelete()} disabled={deleteSaving}>{deleteSaving ? 'Deleting…' : 'Delete'}</Button>
         </div>
       </Modal>
     </div>
