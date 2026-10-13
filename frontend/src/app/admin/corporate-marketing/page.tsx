@@ -922,9 +922,10 @@ function GuideTab() {
         <section className="guide-section">
           <h3><Icon name="file-arrow-up" /> Workbook import</h3>
           <p>
-            Ask a developer to POST the workbook to <code>/api/v1/admin/corp-marketing/import</code>, or use it via API
-            testing tools: it upserts parents, tasks (by Task ID) and events (by Event Code) and <b>never overwrites</b>
-            the person, completion, status or remarks you have entered.
+            Click <b>Import Workbook</b> in the header to upload the annual <code>KG Corporate Marketing_Plan_and_Activities.xlsx</code>.
+            The import upserts parents, tasks (by Task ID) and events (by Event Code) and <b>never overwrites</b>
+            the person, completion, status or remarks you have entered. Select the target year, choose the file, and click Import.
+            Results show counts per entity and any row-level errors.
           </p>
         </section>
       </div>
@@ -941,12 +942,46 @@ function CorpMarketingPage() {
   const [year, setYear] = useState(String(now.getFullYear()));
   const [month, setMonth] = useState(String(now.getMonth() + 1));
   const [refreshKey, setRefreshKey] = useState(0);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importYear, setImportYear] = useState(String(now.getFullYear()));
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ parentsUpserted: number; tasksUpserted: number; eventsUpserted: number; errors: string[] } | null>(null);
 
   const summary = useFetch<CorpSummary>(`/admin/corp-marketing/summary?${qs({ year, month })}`, [year, month, refreshKey]);
   const roles = useFetch<{ items: string[] }>('/admin/corp-marketing/roles', [refreshKey]);
 
   function refreshAll() {
     setRefreshKey((k) => k + 1);
+  }
+
+  async function handleImport() {
+    if (!importFile) { toast.error('Select a workbook first'); return; }
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', importFile);
+      formData.append('year', importYear);
+      const res = await api<{ parentsUpserted: number; tasksUpserted: number; eventsUpserted: number; errors: string[] }>(
+        '/admin/corp-marketing/import',
+        { method: 'POST', body: formData }
+      );
+      setImportResult(res);
+      toast.success(`Imported: ${res.parentsUpserted} parents, ${res.tasksUpserted} tasks, ${res.eventsUpserted} events`);
+      if (res.errors.length) toast.warning(`${res.errors.length} errors — see details below`);
+      await refreshAll();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function closeImport() {
+    setImportOpen(false);
+    setImportFile(null);
+    setImportResult(null);
   }
 
   const tabs = [
@@ -957,52 +992,158 @@ function CorpMarketingPage() {
   ];
 
   return (
-    <Guard>
-      <RequireRole roles={['Administrator']}>
-        <div className="content">
-          <div className="kpi-hero">
-            <div className="kpi-hero-icon"><Icon name="bullhorn" /></div>
-            <div className="kpi-hero-info">
-              <h2>Corporate Marketing Activities Plan</h2>
-              <p>Monthly activity tasks, verification and events/campaigns register</p>
+    <Fragment>
+      <Guard>
+        <RequireRole roles={['Administrator']}>
+          <div className="content">
+            <div className="kpi-hero">
+              <div className="kpi-hero-icon"><Icon name="bullhorn" /></div>
+              <div className="kpi-hero-info">
+                <h2>Corporate Marketing Activities Plan</h2>
+                <p>Monthly activity tasks, verification and events/campaigns register</p>
+              </div>
+              <div className="kpi-hero-stats">
+                <div className="kpi-hero-stat">
+                  <div className="lhs">{summary.data?.tasks.total ?? '—'}</div>
+                  <div className="lbl">Tasks</div>
+                </div>
+                <div className="kpi-hero-stat">
+                  <div className="lhs">{summary.data?.tasks.verified ?? '—'}</div>
+                  <div className="lbl">Verified</div>
+                </div>
+                <div className="kpi-hero-stat">
+                  <div className="lhs">{summary.data?.tasks.avgCompletion != null ? `${summary.data.tasks.avgCompletion}%` : '—'}</div>
+                  <div className="lbl">Completion</div>
+                </div>
+                <div className="kpi-hero-stat">
+                  <div className="lhs">{summary.data?.events.total ?? '—'}</div>
+                  <div className="lbl">Events</div>
+                </div>
+              </div>
+              <div style={{ marginLeft: 'auto' }}>
+                <Button variant="primary" onClick={() => { setImportYear(String(now.getFullYear())); setImportOpen(true); }}>
+                  <Icon name="upload" /> Import Workbook
+                </Button>
+              </div>
             </div>
-            <div className="kpi-hero-stats">
-              <div className="kpi-hero-stat">
-                <div className="lhs">{summary.data?.tasks.total ?? '—'}</div>
-                <div className="lbl">Tasks</div>
-              </div>
-              <div className="kpi-hero-stat">
-                <div className="lhs">{summary.data?.tasks.verified ?? '—'}</div>
-                <div className="lbl">Verified</div>
-              </div>
-              <div className="kpi-hero-stat">
-                <div className="lhs">{summary.data?.tasks.avgCompletion != null ? `${summary.data.tasks.avgCompletion}%` : '—'}</div>
-                <div className="lbl">Completion</div>
-              </div>
-              <div className="kpi-hero-stat">
-                <div className="lhs">{summary.data?.events.total ?? '—'}</div>
-                <div className="lbl">Events</div>
-              </div>
-            </div>
+
+            <Tabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
+
+            {activeTab === 'dashboard' && (
+              <DashboardTab summary={summary.data} year={year} month={month} setYear={setYear} setMonth={setMonth} />
+            )}
+            {activeTab === 'plan' && (
+              <PlanTab year={year} month={month} setYear={setYear} setMonth={setMonth} roles={roles.data?.items ?? []} onRefresh={refreshAll} />
+            )}
+            {activeTab === 'events' && (
+              <EventsTab onRefresh={refreshAll} />
+            )}
+            {activeTab === 'guide' && (
+              <GuideTab />
+            )}
           </div>
+        </RequireRole>
+      </Guard>
 
-          <Tabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
+      <ImportWorkbookModal
+        open={importOpen}
+        onClose={closeImport}
+        year={importYear}
+        setYear={setImportYear}
+        file={importFile}
+        setFile={setImportFile}
+        importing={importing}
+        result={importResult}
+        onImport={handleImport}
+      />
+    </Fragment>
+  );
+}
 
-          {activeTab === 'dashboard' && (
-            <DashboardTab summary={summary.data} year={year} month={month} setYear={setYear} setMonth={setMonth} />
-          )}
-          {activeTab === 'plan' && (
-            <PlanTab year={year} month={month} setYear={setYear} setMonth={setMonth} roles={roles.data?.items ?? []} onRefresh={refreshAll} />
-          )}
-          {activeTab === 'events' && (
-            <EventsTab onRefresh={refreshAll} />
-          )}
-          {activeTab === 'guide' && (
-            <GuideTab />
+function ImportWorkbookModal({
+  open,
+  onClose,
+  year,
+  setYear,
+  file,
+  setFile,
+  importing,
+  result,
+  onImport,
+}: {
+  open: boolean;
+  onClose: () => void;
+  year: string;
+  setYear: (y: string) => void;
+  file: File | null;
+  setFile: (f: File | null) => void;
+  importing: boolean;
+  result: { parentsUpserted: number; tasksUpserted: number; eventsUpserted: number; errors: string[] } | null;
+  onImport: () => void;
+}) {
+  const now = new Date();
+  const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
+
+  return (
+    <Modal open={open} onClose={onClose} title="Import Workbook" wide>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="form-field">
+          <label>Target Year *</label>
+          <select value={year} onChange={(e) => setYear(e.target.value)}>
+            {years.map((y) => <option key={y} value={String(y)}>{y}</option>)}
+          </select>
+        </div>
+
+        <div className="form-field">
+          <label>Workbook (.xlsx) *</label>
+          <input
+            type="file"
+            accept=".xlsx"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            disabled={importing}
+          />
+          {file && <div className="sub-text" style={{ marginTop: 4 }}>{file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)</div>}
+        </div>
+
+        {importing ? (
+          <div style={{ textAlign: 'center', padding: 16 }}>
+            <div className="spinner" style={{ margin: '0 auto 12px' }} />
+            <div>Uploading and processing workbook…</div>
+            <div className="sub-text" style={{ marginTop: 4 }}>This may take up to 3 minutes</div>
+          </div>
+        ) : result ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="grid-4" style={{ marginBottom: 8 }}>
+              <StatCard icon="file-text" label="Parents" value={result.parentsUpserted} tone="blue" />
+              <StatCard icon="list-check" label="Tasks" value={result.tasksUpserted.toLocaleString()} tone="green" />
+              <StatCard icon="calendar-check" label="Events" value={result.eventsUpserted} tone="amber" />
+              <StatCard icon={result.errors.length ? 'circle-xmark' : 'circle-check'} label="Errors" value={result.errors.length} tone={result.errors.length ? 'red' : 'green'} />
+            </div>
+            {result.errors.length > 0 && (
+              <details style={{ border: '1px solid var(--danger)', borderRadius: 8, padding: 12 }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--danger)' }}>
+                  {result.errors.length} error(s) — click to expand
+                </summary>
+                <ul style={{ marginTop: 8, paddingLeft: 20, maxHeight: 200, overflow: 'auto' }}>
+                  {result.errors.map((e, i) => <li key={i} style={{ fontSize: 13, color: 'var(--danger)' }}>{e}</li>)}
+                </ul>
+              </details>
+            )}
+          </div>
+        ) : null}
+
+        <div className="modal-actions" style={{ marginTop: 8 }}>
+          <Button variant="ghost" onClick={onClose} disabled={importing}>Cancel</Button>
+          {!result ? (
+            <Button variant="primary" onClick={() => void onImport()} disabled={importing || !file}>
+              {importing ? 'Importing…' : 'Import Workbook'}
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={onClose}>Done</Button>
           )}
         </div>
-      </RequireRole>
-    </Guard>
+      </div>
+    </Modal>
   );
 }
 
