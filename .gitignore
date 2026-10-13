@@ -31,11 +31,9 @@ Thumbs.db
 # Word lock files
 ~$*
 
-# Independent application repositories (backend/, frontend/)
-backend/
-frontend/
+
 
 # Local config folders
 .codebuddy/
 .history/
-.opencode/
+# .opencode/
