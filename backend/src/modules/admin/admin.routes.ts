@@ -34,6 +34,10 @@ import {
   deleteEvent as deleteCorpEvent,
   getRoles as getCorpRoles,
   listParents as listCorpParents,
+  exportTasksCsv,
+  exportEventsCsv,
+  exportTasksExcel,
+  exportEventsExcel,
 } from './corp-marketing.service';
 import { importCorpMarketingWorkbook } from './corp-import.service';
 import {
@@ -1715,6 +1719,8 @@ router.get(
     const result = await listCorpEvents({
       status: req.query.status as string | undefined,
       search: req.query.search as string | undefined,
+      page: req.query.page ? Number(req.query.page) : undefined,
+      pageSize: req.query.pageSize ? Number(req.query.pageSize) : undefined,
     });
     res.json(result);
   })
@@ -1767,6 +1773,62 @@ router.delete(
       detail: result,
     });
     res.json(result);
+  })
+);
+
+router.get(
+  '/corp-marketing/tasks/export',
+  can('admin.users'),
+  asyncHandler(async (req, res) => {
+    const format = (req.query.format as string) || 'csv';
+    if (format === 'xlsx') {
+      const buffer = await exportTasksExcel({
+        year: req.query.year as string | undefined,
+        month: req.query.month as string | undefined,
+        role: req.query.role as string | undefined,
+        status: req.query.status as string | undefined,
+        parentCode: req.query.parentCode as string | undefined,
+        search: req.query.search as string | undefined,
+      });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="corp-marketing-tasks-${Date.now()}.xlsx"`);
+      return res.send(buffer);
+    }
+    const csv = await exportTasksCsv({
+      year: req.query.year as string | undefined,
+      month: req.query.month as string | undefined,
+      role: req.query.role as string | undefined,
+      status: req.query.status as string | undefined,
+      parentCode: req.query.parentCode as string | undefined,
+      search: req.query.search as string | undefined,
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="corp-marketing-tasks-${Date.now()}.csv"`);
+    res.send(csv);
+  })
+);
+
+router.get(
+  '/corp-marketing/events/export',
+  can('admin.users'),
+  asyncHandler(async (req, res) => {
+    const format = (req.query.format as string) || 'csv';
+    if (format === 'xlsx') {
+      const buffer = await exportEventsExcel({
+        status: req.query.status as string | undefined,
+        search: req.query.search as string | undefined,
+      });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="corp-marketing-events-${Date.now()}.xlsx"`);
+      return res.send(buffer);
+    }
+    const csv = await exportEventsCsv({
+      status: req.query.status as string | undefined,
+      search: req.query.search as string | undefined,
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="corp-marketing-events-${Date.now()}.csv"`);
+    res.send(csv);
   })
 );
 

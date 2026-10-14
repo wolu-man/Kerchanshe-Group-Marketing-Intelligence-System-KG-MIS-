@@ -442,7 +442,11 @@ export async function getTaskSummary(query: { year?: string; month?: string }) {
 // ---------------------------------------------------------------------------
 // Events & Campaigns
 // ---------------------------------------------------------------------------
-export async function listEvents(query: { status?: string; search?: string }) {
+export async function listEvents(query: { status?: string; search?: string; page?: number; pageSize?: number }) {
+  const page = query.page ?? 1;
+  const pageSize = Math.min(query.pageSize ?? 50, 200);
+  const offset = (page - 1) * pageSize;
+
   const request = db.request();
   const conditions: string[] = ['1=1'];
   if (query.status) {
@@ -454,14 +458,25 @@ export async function listEvents(query: { status?: string; search?: string }) {
     request.input('Search', sql.NVarChar(200), `%${query.search}%`);
   }
 
-  const result = await request.query(`
+  const where = conditions.join(' AND ');
+
+  const countResult = await request.query(`SELECT COUNT(*) AS total FROM dbo.CorpMarketingEvent WHERE ${where}`);
+
+  const pageRequest = db.request();
+  if (query.status) pageRequest.input('Status', sql.NVarChar(30), query.status);
+  if (query.search) pageRequest.input('Search', sql.NVarChar(200), `%${query.search}%`);
+  pageRequest.input('Limit', sql.Int, pageSize);
+  pageRequest.input('Offset', sql.Int, offset);
+
+  const result = await pageRequest.query(`
     SELECT * FROM dbo.CorpMarketingEvent
-    WHERE ${conditions.join(' AND ')}
+    WHERE ${where}
     ORDER BY EventCode
+    OFFSET @Offset ROWS FETCH NEXT @Limit ROWS ONLY
   `);
 
   const items = result.recordset.map((r) => deriveEvent(r as Record<string, unknown>));
-  return { items, total: items.length };
+  return { items, total: countResult.recordset[0].total as number, page, pageSize };
 }
 
 export async function createEvent(data: {
@@ -668,4 +683,223 @@ export async function listParents(year?: number) {
     ORDER BY p.ParentCode
   `);
   return result.recordset;
+}
+
+// ---------------------------------------------------------------------------
+// Export functions
+// ---------------------------------------------------------------------------
+
+function escapeCsv(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  const str = String(value);
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function buildCsv(headers: string[], rows: unknown[][]): string {
+  const headerLine = headers.map(escapeCsv).join(',');
+  const dataLines = rows.map((row) => row.map(escapeCsv).join(','));
+  return [headerLine, ...dataLines].join('\n');
+}
+
+export async function exportTasksCsv(query: { year?: string; month?: string; role?: string; status?: string; parentCode?: string; search?: string }) {
+  const year = Number(query.year) || new Date().getFullYear();
+  const request = db.request();
+  request.input('Year', sql.Int, year);
+  const conditions: string[] = ['t.PlanYear = @Year'];
+
+  if (query.month) {
+    conditions.push('t.Month = @Month');
+    request.input('Month', sql.TinyInt, Number(query.month));
+  }
+  if (query.role) {
+    conditions.push('t.ResponsibleRole = @Role');
+    request.input('Role', sql.NVarChar(200), query.role);
+  }
+  if (query.status) {
+    conditions.push('t.Status = @Status');
+    request.input('Status', sql.NVarChar(30), query.status);
+  }
+  if (query.parentCode) {
+    conditions.push('t.ParentCode = @ParentCode');
+    request.input('ParentCode', sql.NVarChar(20), query.parentCode);
+  }
+  if (query.search) {
+    conditions.push('(t.TaskName LIKE @Search OR t.ParentCode LIKE @Search OR t.ResponsiblePerson LIKE @Search OR p.MainActivityKpi LIKE @Search)');
+    request.input('Search', sql.NVarChar(200), `%${query.search}%`);
+  }
+
+  const where = conditions.join(' AND ');
+
+  const result = await request.query(`
+    SELECT t.CorpTaskID, t.PlanYear, t.Month, t.TaskId, t.ParentCode, p.MainActivityKpi,
+           t.TaskIndex, t.TaskName, t.ResponsibleRole, t.ResponsiblePerson, t.Status,
+           t.CompletionPercent, t.EvidenceRemarks, t.VerificationNote,
+           t.VerifiedByUserID, u.Name AS VerifiedByName, t.VerifiedAt, t.UpdatedAt
+    FROM dbo.CorpMarketingTask t
+    LEFT JOIN dbo.CorpMarketingPlanItem p ON p.PlanYear = t.PlanYear AND p.ParentCode = t.ParentCode
+    LEFT JOIN dbo.[User] u ON u.UserID = t.VerifiedByUserID
+    WHERE ${where}
+    ORDER BY t.ParentCode, t.TaskIndex
+  `);
+
+  const headers = [
+    'CorpTaskID', 'PlanYear', 'Month', 'TaskId', 'ParentCode', 'MainActivityKpi',
+    'TaskIndex', 'TaskName', 'ResponsibleRole', 'ResponsiblePerson', 'Status',
+    'CompletionPercent', 'EvidenceRemarks', 'VerificationNote',
+    'VerifiedByUserID', 'VerifiedByName', 'VerifiedAt', 'UpdatedAt'
+  ];
+
+  const rows = result.recordset.map((r) => headers.map((h) => r[h]));
+  return buildCsv(headers, rows);
+}
+
+export async function exportEventsCsv(query: { status?: string; search?: string }) {
+  const request = db.request();
+  const conditions: string[] = ['1=1'];
+  if (query.status) {
+    conditions.push('Status = @Status');
+    request.input('Status', sql.NVarChar(30), query.status);
+  }
+  if (query.search) {
+    conditions.push('(EventCode LIKE @Search OR EventName LIKE @Search OR Category LIKE @Search OR BusinessUnit LIKE @Search OR ResponsiblePerson LIKE @Search)');
+    request.input('Search', sql.NVarChar(200), `%${query.search}%`);
+  }
+
+  const where = conditions.join(' AND ');
+
+  const result = await request.query(`
+    SELECT * FROM dbo.CorpMarketingEvent
+    WHERE ${where}
+    ORDER BY EventCode
+  `);
+
+  const items = result.recordset.map((r) => deriveEvent(r as Record<string, unknown>));
+
+  const headers = [
+    'CorpEventID', 'EventCode', 'Category', 'EventName', 'BusinessUnit',
+    'ResponsiblePerson', 'ResponsibleRole', 'Location', 'StartDate', 'EndDate',
+    'Status', 'PlannedParticipants', 'ActualParticipants', 'LeadsGenerated', 'Conversions',
+    'PlannedRevenue', 'ActualRevenue', 'ApprovedBudget', 'ActualCost',
+    'ReachImpressions', 'Engagements', 'SatisfactionScore',
+    'KpiTarget', 'KpiActual', 'EvidenceLink', 'Remarks',
+    'Month', 'IsoWeek', 'ConversionRate', 'ROIPercent', 'BudgetVariance',
+    'AttendanceRate', 'EngagementRate', 'UpdatedAt'
+  ];
+
+  const rows = items.map((item) => headers.map((h) => (item as unknown as Record<string, unknown>)[h]));
+  return buildCsv(headers, rows);
+}
+
+export async function exportTasksExcel(query: { year?: string; month?: string; role?: string; status?: string; parentCode?: string; search?: string }) {
+  const ExcelJS = (await import('exceljs')).default;
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Monthly Plan Tasks');
+
+  const year = Number(query.year) || new Date().getFullYear();
+  const request = db.request();
+  request.input('Year', sql.Int, year);
+  const conditions: string[] = ['t.PlanYear = @Year'];
+
+  if (query.month) {
+    conditions.push('t.Month = @Month');
+    request.input('Month', sql.TinyInt, Number(query.month));
+  }
+  if (query.role) {
+    conditions.push('t.ResponsibleRole = @Role');
+    request.input('Role', sql.NVarChar(200), query.role);
+  }
+  if (query.status) {
+    conditions.push('t.Status = @Status');
+    request.input('Status', sql.NVarChar(30), query.status);
+  }
+  if (query.parentCode) {
+    conditions.push('t.ParentCode = @ParentCode');
+    request.input('ParentCode', sql.NVarChar(20), query.parentCode);
+  }
+  if (query.search) {
+    conditions.push('(t.TaskName LIKE @Search OR t.ParentCode LIKE @Search OR t.ResponsiblePerson LIKE @Search OR p.MainActivityKpi LIKE @Search)');
+    request.input('Search', sql.NVarChar(200), `%${query.search}%`);
+  }
+
+  const where = conditions.join(' AND ');
+
+  const result = await request.query(`
+    SELECT t.CorpTaskID, t.PlanYear, t.Month, t.TaskId, t.ParentCode, p.MainActivityKpi,
+           t.TaskIndex, t.TaskName, t.ResponsibleRole, t.ResponsiblePerson, t.Status,
+           t.CompletionPercent, t.EvidenceRemarks, t.VerificationNote,
+           t.VerifiedByUserID, u.Name AS VerifiedByName, t.VerifiedAt, t.UpdatedAt
+    FROM dbo.CorpMarketingTask t
+    LEFT JOIN dbo.CorpMarketingPlanItem p ON p.PlanYear = t.PlanYear AND p.ParentCode = t.ParentCode
+    LEFT JOIN dbo.[User] u ON u.UserID = t.VerifiedByUserID
+    WHERE ${where}
+    ORDER BY t.ParentCode, t.TaskIndex
+  `);
+
+  const headers = [
+    'CorpTaskID', 'PlanYear', 'Month', 'TaskId', 'ParentCode', 'MainActivityKpi',
+    'TaskIndex', 'TaskName', 'ResponsibleRole', 'ResponsiblePerson', 'Status',
+    'CompletionPercent', 'EvidenceRemarks', 'VerificationNote',
+    'VerifiedByUserID', 'VerifiedByName', 'VerifiedAt', 'UpdatedAt'
+  ];
+
+  sheet.columns = headers.map((h) => ({ header: h, key: h, width: 20 }));
+  sheet.addRows(result.recordset);
+
+  sheet.getRow(1).font = { bold: true };
+  sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0047AB' } };
+  sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return buffer;
+}
+
+export async function exportEventsExcel(query: { status?: string; search?: string }) {
+  const ExcelJS = (await import('exceljs')).default;
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Events & Campaigns');
+
+  const request = db.request();
+  const conditions: string[] = ['1=1'];
+  if (query.status) {
+    conditions.push('Status = @Status');
+    request.input('Status', sql.NVarChar(30), query.status);
+  }
+  if (query.search) {
+    conditions.push('(EventCode LIKE @Search OR EventName LIKE @Search OR Category LIKE @Search OR BusinessUnit LIKE @Search OR ResponsiblePerson LIKE @Search)');
+    request.input('Search', sql.NVarChar(200), `%${query.search}%`);
+  }
+
+  const where = conditions.join(' AND ');
+
+  const result = await request.query(`
+    SELECT * FROM dbo.CorpMarketingEvent
+    WHERE ${where}
+    ORDER BY EventCode
+  `);
+
+  const items = result.recordset.map((r) => deriveEvent(r as Record<string, unknown>));
+
+  const headers = [
+    'CorpEventID', 'EventCode', 'Category', 'EventName', 'BusinessUnit',
+    'ResponsiblePerson', 'ResponsibleRole', 'Location', 'StartDate', 'EndDate',
+    'Status', 'PlannedParticipants', 'ActualParticipants', 'LeadsGenerated', 'Conversions',
+    'PlannedRevenue', 'ActualRevenue', 'ApprovedBudget', 'ActualCost',
+    'ReachImpressions', 'Engagements', 'SatisfactionScore',
+    'KpiTarget', 'KpiActual', 'EvidenceLink', 'Remarks',
+    'Month', 'IsoWeek', 'ConversionRate', 'ROIPercent', 'BudgetVariance',
+    'AttendanceRate', 'EngagementRate', 'UpdatedAt'
+  ];
+
+  sheet.columns = headers.map((h) => ({ header: h, key: h, width: 20 }));
+  sheet.addRows(items);
+
+  sheet.getRow(1).font = { bold: true };
+  sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0047AB' } };
+  sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return buffer;
 }

@@ -2,9 +2,9 @@
 
 import { Fragment, useMemo, useState } from 'react';
 import { Guard, RequireRole } from '@/components/Guard';
-import { Button, Card, Badge, Modal, Tabs, Icon, Loading, Empty } from '@/components/ui';
+import { Button, Card, Badge, Modal, Tabs, Icon, Loading, Empty, Pagination } from '@/components/ui';
 import { useFetch } from '@/lib/use-api';
-import { api, ApiError, qs } from '@/lib/api';
+import { api, apiBlob, ApiError, qs, downloadFile } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import type { CorpTask, CorpTaskPage, CorpEvent, CorpSummary } from '@/lib/types';
 
@@ -123,13 +123,16 @@ function PlanTab({
   const [role, setRole] = useState('');
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [drafts, setDrafts] = useState<Record<number, { person?: string; completion?: string; remarks?: string; saving?: boolean }>>({});
 
   const data = useFetch<CorpTaskPage>(
-    `/admin/corp-marketing/tasks?${qs({ year, month, role, status, search, pageSize: 500 })}`,
-    [year, month, role, status, search]
+    `/admin/corp-marketing/tasks?${qs({ year, month, role, status, search, page, pageSize })}`,
+    [year, month, role, status, search, page, pageSize]
   );
   const items = data.data?.items ?? [];
+  const total = data.data?.total ?? 0;
 
   const parents = useFetch<{ items: { ParentCode: string; MainActivityKpi: string | null }[] }>(
     `/admin/corp-marketing/parents?${qs({ year })}`,
@@ -267,6 +270,15 @@ function PlanTab({
     return s;
   }, [items]);
 
+  async function exportTasks(format: 'csv' | 'xlsx') {
+    const blob = await apiBlob(`/admin/corp-marketing/tasks/export${qs({
+      year, month, role, status, parentCode: undefined, search, format
+    })}`);
+    const ext = format === 'xlsx' ? 'xlsx' : 'csv';
+    downloadFile(blob, `corp-marketing-tasks-${year}${month ? '-' + month.padStart(2, '0') : ''}-${Date.now()}.${ext}`);
+    toast.success(`Tasks exported as ${ext.toUpperCase()}`);
+  }
+
   function draftFor(row: CorpTask) {
     return drafts[row.CorpTaskID] ?? {};
   }
@@ -365,6 +377,12 @@ function PlanTab({
         </div>
         <div className="spacer" />
         <span className="sub-text">{data.data?.total ?? items.length} tasks</span>
+        <Button variant="ghost" size="sm" onClick={() => exportTasks('csv')}>
+          <Icon name="download" /> CSV
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => exportTasks('xlsx')}>
+          <Icon name="download" /> Excel
+        </Button>
         <Button variant="primary" size="sm" onClick={openCreate}>
           <Icon name="plus" /> Add task
         </Button>
@@ -380,99 +398,102 @@ function PlanTab({
       {data.loading ? <Loading /> : data.error ? (
         <div className="empty" style={{ color: 'var(--danger)' }}>{data.error}</div>
       ) : items.length === 0 ? <Empty /> : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Task</th>
-              <th>Role</th>
-              <th>Person</th>
-              <th>Completion %</th>
-              <th>Evidence / Remarks</th>
-              <th>Status</th>
-              <th>Task ID</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((row) => {
-              const d = draftFor(row);
-              const groupChanged = row.ParentCode !== prevParent;
-              prevParent = row.ParentCode;
-              return (
-                <Fragment key={row.CorpTaskID}>
-                  {groupChanged && (
+        <>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Task</th>
+                <th>Role</th>
+                <th>Person</th>
+                <th>Completion %</th>
+                <th>Evidence / Remarks</th>
+                <th>Status</th>
+                <th>Task ID</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((row) => {
+                const d = draftFor(row);
+                const groupChanged = row.ParentCode !== prevParent;
+                prevParent = row.ParentCode;
+                return (
+                  <Fragment key={row.CorpTaskID}>
+                    {groupChanged && (
+                      <tr>
+                        <td colSpan={8} style={{ background: 'var(--bg-subtle, #f4f6fa)', fontWeight: 600 }}>
+                          <code>{row.ParentCode}</code> — {row.MainActivityKpi}
+                        </td>
+                      </tr>
+                    )}
                     <tr>
-                      <td colSpan={8} style={{ background: 'var(--bg-subtle, #f4f6fa)', fontWeight: 600 }}>
-                        <code>{row.ParentCode}</code> — {row.MainActivityKpi}
+                      <td title={row.TaskName}>{row.TaskName.length > 70 ? `${row.TaskName.slice(0, 70)}…` : row.TaskName}</td>
+                      <td>{row.ResponsibleRole ?? '—'}</td>
+                      <td>
+                        <input
+                          style={{ width: 160 }}
+                          value={d.person ?? row.ResponsiblePerson ?? ''}
+                          placeholder="Assign..."
+                          onChange={(e) => setDraft(row, { person: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          style={{ width: 80 }}
+                          value={d.completion ?? (row.CompletionPercent != null ? String(row.CompletionPercent) : '')}
+                          placeholder="—"
+                          onChange={(e) => setDraft(row, { completion: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          style={{ width: 200 }}
+                          value={d.remarks ?? row.EvidenceRemarks ?? ''}
+                          placeholder="—"
+                          onChange={(e) => setDraft(row, { remarks: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <Badge tone={statusTone(row.Status)}>{row.Status}</Badge>
+                        {row.Status === 'Rejected' && row.VerificationNote ? (
+                          <div className="sub-text" title={row.VerificationNote}>{row.VerificationNote.slice(0, 40)}</div>
+                        ) : null}
+                      </td>
+                      <td className="date-cell"><code>{row.TaskId}</code></td>
+                      <td>
+                        <div className="action-btns">
+                          <Button variant="primary" size="sm" disabled={d.saving} onClick={() => void saveRow(row)}>
+                            {d.saving ? '...' : 'Save'}
+                          </Button>
+                          <Button variant="ghost" size="sm" title="Edit details" onClick={() => openEdit(row)}>
+                            <Icon name="pen" />
+                          </Button>
+                          {row.Status === 'Not Verified' ? (
+                            <>
+                              <Button variant="ghost" size="sm" title="Verify" onClick={() => void act(row, 'Verified')}>
+                                <Icon name="check" />
+                              </Button>
+                              <Button variant="ghost" size="sm" title="Reject" onClick={() => void act(row, 'Rejected')}>
+                                <Icon name="xmark" />
+                              </Button>
+                            </>
+                          ) : null}
+                          <Button variant="ghost" size="sm" title="Delete task" onClick={() => setDeleting(row)}>
+                            <Icon name="trash" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
-                  )}
-                  <tr>
-                    <td title={row.TaskName}>{row.TaskName.length > 70 ? `${row.TaskName.slice(0, 70)}…` : row.TaskName}</td>
-                    <td>{row.ResponsibleRole ?? '—'}</td>
-                    <td>
-                      <input
-                        style={{ width: 160 }}
-                        value={d.person ?? row.ResponsiblePerson ?? ''}
-                        placeholder="Assign..."
-                        onChange={(e) => setDraft(row, { person: e.target.value })}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        style={{ width: 80 }}
-                        value={d.completion ?? (row.CompletionPercent != null ? String(row.CompletionPercent) : '')}
-                        placeholder="—"
-                        onChange={(e) => setDraft(row, { completion: e.target.value })}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        style={{ width: 200 }}
-                        value={d.remarks ?? row.EvidenceRemarks ?? ''}
-                        placeholder="—"
-                        onChange={(e) => setDraft(row, { remarks: e.target.value })}
-                      />
-                    </td>
-                    <td>
-                      <Badge tone={statusTone(row.Status)}>{row.Status}</Badge>
-                      {row.Status === 'Rejected' && row.VerificationNote ? (
-                        <div className="sub-text" title={row.VerificationNote}>{row.VerificationNote.slice(0, 40)}</div>
-                      ) : null}
-                    </td>
-                    <td className="date-cell"><code>{row.TaskId}</code></td>
-                    <td>
-                      <div className="action-btns">
-                        <Button variant="primary" size="sm" disabled={d.saving} onClick={() => void saveRow(row)}>
-                          {d.saving ? '...' : 'Save'}
-                        </Button>
-                        <Button variant="ghost" size="sm" title="Edit details" onClick={() => openEdit(row)}>
-                          <Icon name="pen" />
-                        </Button>
-                        {row.Status === 'Not Verified' ? (
-                          <>
-                            <Button variant="ghost" size="sm" title="Verify" onClick={() => void act(row, 'Verified')}>
-                              <Icon name="check" />
-                            </Button>
-                            <Button variant="ghost" size="sm" title="Reject" onClick={() => void act(row, 'Rejected')}>
-                              <Icon name="xmark" />
-                            </Button>
-                          </>
-                        ) : null}
-                        <Button variant="ghost" size="sm" title="Delete task" onClick={() => setDeleting(row)}>
-                          <Icon name="trash" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+          <Pagination page={page} total={total} pageSize={pageSize} onPageChange={setPage} />
+        </>
       )}
 
       <Modal open={creating} onClose={() => setCreating(false)} title="Add task" wide>
@@ -583,6 +604,8 @@ function PlanTab({
 function EventsTab({ onRefresh }: { onRefresh: () => void }) {
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [edit, setEdit] = useState<CorpEvent | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
@@ -591,10 +614,11 @@ function EventsTab({ onRefresh }: { onRefresh: () => void }) {
   const [deleteSaving, setDeleteSaving] = useState(false);
 
   const data = useFetch<{ items: CorpEvent[]; total: number }>(
-    `/admin/corp-marketing/events?${qs({ status, search })}`,
-    [status, search]
+    `/admin/corp-marketing/events?${qs({ status, search, page, pageSize })}`,
+    [status, search, page, pageSize]
   );
   const items = data.data?.items ?? [];
+  const total = data.data?.total ?? 0;
 
   const EMPTY_FORM = {
     category: '', eventName: '', businessUnit: '', responsiblePerson: '', responsibleRole: '',
@@ -725,6 +749,13 @@ function EventsTab({ onRefresh }: { onRefresh: () => void }) {
     }
   }
 
+  async function exportEvents(format: 'csv' | 'xlsx') {
+    const blob = await apiBlob(`/admin/corp-marketing/events/export${qs({ status, search, format })}`);
+    const ext = format === 'xlsx' ? 'xlsx' : 'csv';
+    downloadFile(blob, `corp-marketing-events-${Date.now()}.${ext}`);
+    toast.success(`Events exported as ${ext.toUpperCase()}`);
+  }
+
   const F = (key: string, label: string, type: 'text' | 'number' | 'date' = 'text') => (
     <div className="form-field" key={key}>
       <label>{label}</label>
@@ -755,6 +786,12 @@ function EventsTab({ onRefresh }: { onRefresh: () => void }) {
         </div>
         <div className="spacer" />
         <span className="sub-text">{data.data?.total ?? items.length} events</span>
+        <Button variant="ghost" size="sm" onClick={() => exportEvents('csv')}>
+          <Icon name="download" /> CSV
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => exportEvents('xlsx')}>
+          <Icon name="download" /> Excel
+        </Button>
         <Button variant="primary" size="sm" onClick={openCreate}>
           <Icon name="plus" /> Add event
         </Button>
@@ -763,63 +800,66 @@ function EventsTab({ onRefresh }: { onRefresh: () => void }) {
       {data.loading ? <Loading /> : data.error ? (
         <div className="empty" style={{ color: 'var(--danger)' }}>{data.error}</div>
       ) : items.length === 0 ? <Empty message="No events match the filters" /> : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Code</th>
-              <th>Event / Campaign</th>
-              <th>Category</th>
-              <th>BU</th>
-              <th>Dates</th>
-              <th>Status</th>
-              <th>Budget</th>
-              <th>Cost</th>
-              <th>Variance</th>
-              <th>Leads / Conv.</th>
-              <th>ROI %</th>
-              <th>Reach</th>
-              <th>Eng. %</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((row) => (
-              <tr key={row.CorpEventID}>
-                <td><code>{row.EventCode}</code></td>
-                <td>
-                  <div className="plan-title-cell">
-                    <strong>{row.EventName ?? <span className="sub-text">Untitled</span>}</strong>
-                    <span className="sub-text">{row.ResponsiblePerson ?? ''}{row.Location ? ` · ${row.Location}` : ''}</span>
-                  </div>
-                </td>
-                <td>{row.Category ?? '—'}</td>
-                <td>{row.BusinessUnit ?? '—'}</td>
-                <td className="date-cell">
-                  {row.StartDate ? `${row.StartDate}${row.EndDate ? ` → ${row.EndDate}` : ''}` : '—'}
-                  {row.Month ? <div className="sub-text">{MONTH_NAMES[row.Month - 1]} · W{row.IsoWeek}</div> : null}
-                </td>
-                <td><Badge tone={statusTone(row.Status)}>{row.Status}</Badge></td>
-                <td>{row.ApprovedBudget != null ? row.ApprovedBudget.toLocaleString() : '—'}</td>
-                <td>{row.ActualCost != null ? row.ActualCost.toLocaleString() : '—'}</td>
-                <td>{row.BudgetVariance != null ? row.BudgetVariance.toLocaleString() : '—'}</td>
-                <td>{row.LeadsGenerated ?? '—'} / {row.Conversions ?? '—'}{row.ConversionRate != null ? <span className="sub-text"> ({row.ConversionRate}%)</span> : null}</td>
-                <td>{row.ROIPercent != null ? `${row.ROIPercent}%` : '—'}</td>
-                <td>{row.ReachImpressions != null ? row.ReachImpressions.toLocaleString() : '—'}</td>
-                <td>{row.EngagementRate != null ? `${row.EngagementRate}%` : '—'}</td>
-                <td>
-                  <div className="action-btns">
-                    <Button variant="ghost" size="sm" onClick={() => openEdit(row)}>
-                      <Icon name="pen" /> Edit
-                    </Button>
-                    <Button variant="ghost" size="sm" title="Delete event" onClick={() => setDeleting(row)}>
-                      <Icon name="trash" />
-                    </Button>
-                  </div>
-                </td>
+        <>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Event / Campaign</th>
+                <th>Category</th>
+                <th>BU</th>
+                <th>Dates</th>
+                <th>Status</th>
+                <th>Budget</th>
+                <th>Cost</th>
+                <th>Variance</th>
+                <th>Leads / Conv.</th>
+                <th>ROI %</th>
+                <th>Reach</th>
+                <th>Eng. %</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {items.map((row) => (
+                <tr key={row.CorpEventID}>
+                  <td><code>{row.EventCode}</code></td>
+                  <td>
+                    <div className="plan-title-cell">
+                      <strong>{row.EventName ?? <span className="sub-text">Untitled</span>}</strong>
+                      <span className="sub-text">{row.ResponsiblePerson ?? ''}{row.Location ? ` · ${row.Location}` : ''}</span>
+                    </div>
+                  </td>
+                  <td>{row.Category ?? '—'}</td>
+                  <td>{row.BusinessUnit ?? '—'}</td>
+                  <td className="date-cell">
+                    {row.StartDate ? `${row.StartDate}${row.EndDate ? ` → ${row.EndDate}` : ''}` : '—'}
+                    {row.Month ? <div className="sub-text">{MONTH_NAMES[row.Month - 1]} · W{row.IsoWeek}</div> : null}
+                  </td>
+                  <td><Badge tone={statusTone(row.Status)}>{row.Status}</Badge></td>
+                  <td>{row.ApprovedBudget != null ? row.ApprovedBudget.toLocaleString() : '—'}</td>
+                  <td>{row.ActualCost != null ? row.ActualCost.toLocaleString() : '—'}</td>
+                  <td>{row.BudgetVariance != null ? row.BudgetVariance.toLocaleString() : '—'}</td>
+                  <td>{row.LeadsGenerated ?? '—'} / {row.Conversions ?? '—'}{row.ConversionRate != null ? <span className="sub-text"> ({row.ConversionRate}%)</span> : null}</td>
+                  <td>{row.ROIPercent != null ? `${row.ROIPercent}%` : '—'}</td>
+                  <td>{row.ReachImpressions != null ? row.ReachImpressions.toLocaleString() : '—'}</td>
+                  <td>{row.EngagementRate != null ? `${row.EngagementRate}%` : '—'}</td>
+                  <td>
+                    <div className="action-btns">
+                      <Button variant="ghost" size="sm" onClick={() => openEdit(row)}>
+                        <Icon name="pen" /> Edit
+                      </Button>
+                      <Button variant="ghost" size="sm" title="Delete event" onClick={() => setDeleting(row)}>
+                        <Icon name="trash" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Pagination page={page} total={total} pageSize={pageSize} onPageChange={setPage} />
+        </>
       )}
 
       <Modal
