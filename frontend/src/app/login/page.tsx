@@ -65,12 +65,6 @@ export default function LoginPage() {
             Sign in
           </Button>
         </form>
-        <p className="dev-note" style={{ marginTop: 16, fontSize: 12, color: 'var(--text-faint)' }}>
-          Development build — CUAS SSO is wired in production.
-        </p>
-        <div style={{ marginTop: 4, textAlign: 'center' }}>
-          <TourTriggerLink tourId="signin" label="Take a tour before signing in" />
-        </div>
       </div>
     </div>
   );
