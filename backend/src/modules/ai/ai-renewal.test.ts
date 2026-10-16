@@ -5,6 +5,7 @@
 
 import { DotEnvConfigStore } from '../../config/config-store';
 import { AI_CONFIG_KEYS } from '../../config/config-store';
+import { keyFingerprint } from './providers/provider';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -152,6 +153,34 @@ async function runTests(): Promise<void> {
     assert(
       AI_CONFIG_KEYS.ROTATION_DUE === 'ai.rotation.due',
       'ROTATION_DUE constant correct'
+    );
+    assert(
+      AI_CONFIG_KEYS.GEMINI_UPDATED_AT === 'ai.gemini.updatedAt',
+      'GEMINI_UPDATED_AT constant correct'
+    );
+    assert(
+      AI_CONFIG_KEYS.GROQ_UPDATED_AT === 'ai.groq.updatedAt',
+      'GROQ_UPDATED_AT constant correct'
+    );
+  });
+
+  await describe('keyFingerprint', async () => {
+    assert(
+      keyFingerprint('AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ012345') === 'AIza…2345',
+      'long key → first 4 + last 4'
+    );
+    assert(
+      keyFingerprint('gsk_abcdefghijk') === 'gsk_…hijk',
+      'groq-style key fingerprint correct'
+    );
+    assert(keyFingerprint('') === null, 'empty key → null');
+    assert(keyFingerprint(null) === null, 'null key → null');
+    assert(keyFingerprint(undefined) === null, 'undefined key → null');
+    assert(keyFingerprint('short') === null, 'too-short key (<9 chars) → null');
+    assert(keyFingerprint('12345678') === null, 'exactly 8 chars → null');
+    assert(
+      keyFingerprint('123456789') === '1234…6789',
+      'exactly 9 chars → fingerprinted'
     );
   });
 

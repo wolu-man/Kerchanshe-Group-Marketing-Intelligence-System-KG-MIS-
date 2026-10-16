@@ -1023,10 +1023,11 @@ Manages the Gemini/Groq API keys used by the AI features and the scheduled rotat
 reminder. Full operational guide: `Docs/AI_Renewal_Guide.md`.
 
 - **Provider cards (Gemini, Groq)**: status badge `Available` / `Configured — Unavailable` /
-  `Not Configured`, model, password-masked **API key** input with reveal toggle, provider
-  console link (Google AI Studio / Groq Console), and **Test Connection** (validates without
-  saving), **Save / Renew** (validates, then persists and applies at runtime — no restart),
-  **Cancel**. Stored keys are never displayed back.
+  `Not Configured`, model, key **fingerprint** (`ABCD…WXYZ` — first/last 4 chars only) with
+  **Last updated** timestamp so you can confirm a renewal landed, password-masked **API key**
+  input with reveal toggle, provider console link (Google AI Studio / Groq Console), and
+  **Test Connection** (validates without saving), **Save / Renew** (validates, then persists
+  and applies at runtime — no restart), **Cancel**. Stored keys are never displayed back.
 - **Scheduled Key Rotation**: **Enable Rotation Reminders** toggle, **Rotation Interval
   (days)** (1–365, default 90), read-only **Next Rotation Due** (red badge
   "Rotation due — provide new key" when due), **Provider to Rotate**, **Save Rotation

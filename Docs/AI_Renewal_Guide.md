@@ -42,7 +42,9 @@ GET /api/v1/ai/renewal/providers/status
 
 Returns current status of all AI providers (reuses existing `providerStatuses()`).
 
-**Response:**
+**Response** (renewable providers include a `fingerprint` — first…last 4 chars of the
+stored key — and `updatedAt` ISO timestamp of the last successful save; both are null
+until a key has been saved through this feature):
 ```json
 {
   "providers": [
@@ -52,7 +54,9 @@ Returns current status of all AI providers (reuses existing `providerStatuses()`
       "configured": true,
       "available": true,
       "model": "gemini-flash-latest",
-      "detail": null
+      "detail": null,
+      "fingerprint": "AQ.A…kqew",
+      "updatedAt": "2026-10-16T21:25:40.598Z"
     },
     {
       "id": "groq",
@@ -60,7 +64,9 @@ Returns current status of all AI providers (reuses existing `providerStatuses()`
       "configured": true,
       "available": false,
       "model": "llama-3.3-70b-versatile",
-      "detail": "The Groq API key was rejected"
+      "detail": "The Groq API key was rejected",
+      "fingerprint": "gsk_…Inti",
+      "updatedAt": null
     }
   ]
 }
@@ -227,7 +233,7 @@ export function getConfigStore(): ConfigStore {
 
 | Requirement | Implementation |
 |-------------|----------------|
-| Keys never in frontend | Backend-only validation; frontend only sends new key to API |
+| Keys never in frontend | Backend-only validation; frontend only sends new key to API. Exception: the admin renewal status endpoint returns a **fingerprint** (first…last 4 chars) + last-updated timestamp so admins can verify a save landed — never the full key |
 | Keys never in logs/audit | `config-store.ts` redacts secrets; audit detail excludes keys |
 | Keys never in URLs | POST bodies only |
 | Atomic writes | Temp file → `fs.rename()` (POSIX atomic) |

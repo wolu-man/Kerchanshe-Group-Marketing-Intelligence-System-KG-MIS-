@@ -12,8 +12,9 @@ import { asyncHandler } from '../../utils/http';
 import { AppError } from '../../utils/errors';
 import { audit } from '../../db/audit';
 import { providerStatuses, PROVIDERS } from '../ai/providers';
+import { keyFingerprint } from '../ai/providers/provider';
 import { getConfigStore, AI_CONFIG_KEYS } from '../../config/config-store';
-import { updateAiConfig } from '../../config/env';
+import { env, updateAiConfig } from '../../config/env';
 import { logger } from '../../config/logger';
 
 type RenewableProvider = 'gemini' | 'groq';
@@ -68,12 +69,37 @@ const router = Router();
 router.use(requireAuth);
 
 // GET /api/v1/ai/renewal/providers/status - Get current provider statuses
+// Renewable providers additionally carry a key fingerprint (first/last 4 chars)
+// and last-updated timestamp so admins can verify a renewal landed — the full
+// key never leaves the server.
 router.get(
   '/providers/status',
   can('ai.renewal'),
   asyncHandler(async (_req, res) => {
     const providers = await providerStatuses();
-    res.json({ providers });
+    const configStore = getConfigStore();
+    const [geminiUpdatedAt, groqUpdatedAt] = await Promise.all([
+      configStore.get(AI_CONFIG_KEYS.GEMINI_UPDATED_AT),
+      configStore.get(AI_CONFIG_KEYS.GROQ_UPDATED_AT),
+    ]);
+    const enriched = providers.map((p) => {
+      if (p.id === 'gemini') {
+        return {
+          ...p,
+          fingerprint: keyFingerprint(env.ai.gemini.apiKey),
+          updatedAt: geminiUpdatedAt,
+        };
+      }
+      if (p.id === 'groq') {
+        return {
+          ...p,
+          fingerprint: keyFingerprint(env.ai.groq.apiKey),
+          updatedAt: groqUpdatedAt,
+        };
+      }
+      return p;
+    });
+    res.json({ providers: enriched });
   })
 );
 
@@ -175,8 +201,10 @@ router.post(
       // Validation passed - persist the key
       const configStore = getConfigStore();
       const envKey = provider === 'gemini' ? AI_CONFIG_KEYS.GEMINI_API_KEY : AI_CONFIG_KEYS.GROQ_API_KEY;
+      const updatedAtKey = provider === 'gemini' ? AI_CONFIG_KEYS.GEMINI_UPDATED_AT : AI_CONFIG_KEYS.GROQ_UPDATED_AT;
 
       await configStore.set(envKey, apiKey);
+      await configStore.set(updatedAtKey, new Date().toISOString());
 
       // Update runtime config so subsequent requests use the new key
       if (provider === 'gemini') {

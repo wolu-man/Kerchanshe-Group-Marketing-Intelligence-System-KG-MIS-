@@ -56,6 +56,23 @@ function ProviderStatusCard({
           )}
         </div>
 
+        {/* Key fingerprint + last-saved — lets admins confirm a renewal landed
+            without ever exposing key material. */}
+        {provider.configured && (
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            {provider.fingerprint && (
+              <span>
+                Key: <code>{provider.fingerprint}</code>
+              </span>
+            )}
+            {provider.updatedAt ? (
+              <span>Last updated: {new Date(provider.updatedAt).toLocaleString()}</span>
+            ) : (
+              <span>Last updated: never (pre-dates tracking)</span>
+            )}
+          </div>
+        )}
+
         {provider.detail && (
           <div className="hint" style={{ fontSize: 13 }}>{provider.detail}</div>
         )}

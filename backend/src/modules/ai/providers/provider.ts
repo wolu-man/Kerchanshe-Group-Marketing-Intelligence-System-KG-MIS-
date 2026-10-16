@@ -109,3 +109,13 @@ export function reasonFromBody(body: string): string {
 export function elapsed(startedAt: number): number {
   return Date.now() - startedAt;
 }
+
+/**
+ * Display fingerprint for a stored key: first 4 + last 4 characters only.
+ * Used by AI Renewal to let admins identify which key is live without ever
+ * exposing key material. Returns null for missing or very short values.
+ */
+export function keyFingerprint(key: string | null | undefined): string | null {
+  if (!key || key.length < 9) return null;
+  return `${key.slice(0, 4)}…${key.slice(-4)}`;
+}

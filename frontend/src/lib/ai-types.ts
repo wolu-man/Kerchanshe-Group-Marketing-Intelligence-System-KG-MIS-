@@ -21,6 +21,10 @@ export interface AiProviderStatus {
   available: boolean;
   model: string | null;
   detail?: string;
+  /** First…last 4 chars of the stored key (renewal page only — never the full key). */
+  fingerprint?: string | null;
+  /** ISO timestamp of the last successful key save (renewal page only). */
+  updatedAt?: string | null;
 }
 
 export interface AiProvidersResponse {

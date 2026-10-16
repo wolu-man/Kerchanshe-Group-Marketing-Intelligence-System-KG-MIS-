@@ -231,6 +231,8 @@ export function getConfigStore(): ConfigStore {
 export const AI_CONFIG_KEYS = {
   GEMINI_API_KEY: 'GEMINI_API_KEY',
   GROQ_API_KEY: 'GROQ_API_KEY',
+  GEMINI_UPDATED_AT: 'ai.gemini.updatedAt',
+  GROQ_UPDATED_AT: 'ai.groq.updatedAt',
   ROTATION_ENABLED: 'ai.rotation.enabled',
   ROTATION_INTERVAL_DAYS: 'ai.rotation.intervalDays',
   ROTATION_NEXT_RUN: 'ai.rotation.nextRun',
