@@ -10,6 +10,9 @@
 > This guide documents only features that actually exist in the codebase. Reference
 > documents under `Docs/` (FDS, TDS, SRS, Integration Design) describe intent; where the
 > implementation differs, this guide and the code are authoritative.
+>
+> Companion guides with deeper detail: `Docs/User Guide-Docs/KG-MIS_Corporate_Marketing_Plan_User_Guide_v1_0.md`,
+> `Docs/AI_Form_Assistant.md`, `Docs/AI_Renewal_Guide.md`, `Docs/Dev-Docs/Opportunity_Intelligence_Source_Registry.md`.
 
 ---
 
@@ -34,12 +37,15 @@
 17. [Module: Reports & Power BI](#17-module-reports--power-bi)
 18. [Module: Admin Centre](#18-module-admin-centre)
 19. [Module: D365FO Sync](#19-module-d365fo-sync)
-20. [Key workflows (step by step)](#20-key-workflows-step-by-step)
-21. [Validation, errors & toasts](#21-validation-errors--toasts)
-22. [Data reference](#22-data-reference)
-23. [End-to-end demo scenario](#23-end-to-end-demo-scenario)
-24. [Quick reference](#24-quick-reference)
-25. [Appendix: capability-by-feature checklist](#25-appendix-capability-by-feature-checklist)
+20. [Module: Opportunities & Tenders](#20-module-opportunities--tenders)
+21. [Module: AI assistant & predictive insights](#21-module-ai-assistant--predictive-insights)
+22. [Module: Support & public pages](#22-module-support--public-pages)
+23. [Key workflows (step by step)](#23-key-workflows-step-by-step)
+24. [Validation, errors & toasts](#24-validation-errors--toasts)
+25. [Data reference](#25-data-reference)
+26. [End-to-end demo scenario](#26-end-to-end-demo-scenario)
+27. [Quick reference](#27-quick-reference)
+28. [Appendix: capability-by-feature checklist](#28-appendix-capability-by-feature-checklist)
 
 ---
 
@@ -53,11 +59,19 @@ KG-MIS is a web platform for the Marketing department to:
 - Build and run **dynamic surveys/forms** (NexForm) and collect responses inline.
 - Track **competitor pricing** and auto-flag price gaps vs. own (D365FO) prices.
 - Record **weekly sales** entries with revenue computation per product/outlet.
-- Dispatch **notifications** (Email/SMS/WhatsApp) on business events.
+- Dispatch **notifications** (Email) on business events.
 - View **reports and Power BI-style dashboards** (sales, pricing, visits, forms, interviews, multimedia, KPIs).
 - Track **officer performance** with KPI scoring, plan assignments, and activity logging.
 - **Synchronize master data** (products, customers, sales) from D365FO.
-- Administer **users, roles, business groups, customers, products, regions, outlets, notification config, schedules, audit trail** via an Admin Centre.
+- Discover, qualify and track **business opportunities** (tenders, RFQs, buyer leads,
+  export and trade intelligence) collected from external data sources.
+- Use **AI assistance** across the product: form building, writing help, response
+  analysis, natural-language "Ask AI" over MIS data, and deterministic **predictive
+  forecasts** on the dashboard.
+- Administer **users, roles, business groups, customers, products, competitors, regions, outlets, notification config, schedules, audit trail** via an Admin Centre.
+- Run the annual **Corporate Marketing Activities Plan** (monthly tasks, verification,
+  events register, workbook import).
+- Self-serve **Help Center** (guides + FAQs) and **interactive product tours**.
 
 Users are authenticated with corporate SSO (CUAS) in production and a local
 development login in development.
@@ -72,22 +86,31 @@ Field / Marketing users → Next.js web portal (:3000) → Express/TypeScript AP
                                                       ↕ CUAS    (SSO login + role claims)
                                                       ↕ SMTP    (email delivery)
                                                       ↕ Power BI (reporting views, embed tokens)
+                                                      ↕ AI providers (Ollama / Gemini / Groq — assistant, Ask AI, enrichment)
+                                                      ↕ Tender sources (e-GP, 2merkato, TenderInfo, TenderMetro — public APIs)
 ```
 
 | Layer     | Technology                          | Status                        |
 | --------- | ----------------------------------- | ----------------------------- |
 | Web       | Next.js 14, TypeScript              | ✅ Built                      |
 | API       | Node.js, Express, TypeScript        | ✅ Built (`/api/v1`)          |
-| Database  | MS SQL Server (`KG_MIS`)            | ✅ Migrations + seed (27 migrations, 40+ tables) |
+| Database  | MS SQL Server (`KG_MIS`)            | ✅ Migrations + seed (50 migrations, 60+ tables) |
 | Identity  | CUAS (SSO)                          | 🟡 Mock in dev; live provider partial |
 | Notify    | SMTP (Email)                        | 🟡 Mock delivery in dev       |
 | Master data | D365FO via OData/REST             | 🟡 Mock sync in dev           |
 | Analytics | Power BI                           | 🟡 Seeded catalogue + placeholder embed |
+| AI        | Ollama / Gemini / Groq (server-side) | ✅ Live when keys configured; 503 `AI_PROVIDER_UNAVAILABLE` otherwise |
+| Opportunity sources | Public tender APIs (OData/REST) | ✅ 5 seeded sources; scheduled collection off by default |
 
 **Integration mode flags** (see `backend/.env.example`):
 - `D365FO_MOCK=true` — deterministic sample master-data sync.
 - `CUAS_SSO_ENABLED=false` — local login against dev users.
 - `POWERBI_MOCK=true` — seeded Power BI catalogue + placeholder embed tokens.
+- `AI_PROVIDER=auto|ollama|gemini|groq` with `GEMINI_API_KEY` / `GROQ_API_KEY` /
+  `OLLAMA_BASE_URL` — AI assistant, Ask AI, enrichment and renewal. No mock path: with
+  no provider configured the API returns `503 AI_PROVIDER_UNAVAILABLE`.
+- `TENDERS_COLLECTION_ENABLED=false` — scheduled opportunity collection (default off;
+  collect manually from **Data sources**).
 
 Setting a flag to `false` activates the live connector. The connector modules
 (`backend/src/integrations/*`) contain `TODO` stubs marking the exact insertion
@@ -114,8 +137,14 @@ Docs/         Design documents + this guide
 cd backend
 npm install
 cp .env.example .env        # set DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME
+                            # optional: AI_PROVIDER, GEMINI_API_KEY / GROQ_API_KEY, TENDERS_*
 npm run db:migrate          # runs backend/migrations/*.sql
 npm run db:seed             # backend/seed/seed.sql + scripts/seed.js (sets dev passwords)
+
+# Optional reference/feature seeds (idempotent):
+npm run db:seed:tenders     # 5 opportunity data sources (e-GP, 2merkato×2, TenderInfo, TenderMetro)
+npm run db:seed:competitors # competitor product master from Excel sources
+npm run db:seed:history     # ~1,400 deterministic rows powering predictive forecasts
 ```
 
 ### Run
@@ -149,31 +178,51 @@ user's assigned regions. `UserRegionAssignment` holds the mapping.
 
 ### Sidebar navigation (by section)
 
+Sections are collapsible; the open/closed state is persisted per user
+(`kgmis_sidebar_open_<userId>`), and the current page's section stays open automatically.
+
 | Section          | Item              | Roles visible to                                            |
 | ---------------- | ----------------- | ----------------------------------------------------------- |
 | **Overview**     | Dashboard         | All five roles                                               |
 |                  | Notifications     | All five roles                                               |
-| **Field Intelligence** | Market Visits | Administrator, Marketing Manager, Marketing Analyst, Field Officer |
+| **Field intelligence** | Market visits | Administrator, Marketing Manager, Marketing Analyst, Field Officer |
 |                  | Interviews        | All five roles                                               |
-|                  | Photos & Videos   | All five roles                                               |
-|                  | Forms & Surveys   | All five roles                                               |
-|                  | Competitor Pricing| Administrator, Marketing Manager, Marketing Analyst, Field Officer |
-|                  | Weekly Sales      | All five roles                                               |
-|                  | My Performance    | Administrator, Marketing Manager, Marketing Analyst, Field Officer |
+|                  | Photos & videos   | All five roles                                               |
+|                  | Forms & surveys   | All five roles                                               |
+|                  | Competitor pricing| Administrator, Marketing Manager, Marketing Analyst, Field Officer |
+|                  | Weekly sales      | All five roles                                               |
+|                  | My performance    | Administrator, Marketing Manager, Marketing Analyst, Field Officer |
 | **Analytics**    | Reports & Power BI| Administrator, Marketing Manager, Marketing Analyst, Viewer |
-| **Administration** | Admin Centre    | Administrator only                                          |
-|                  | Planning & Performance | Administrator only                                      |
-|                  | Business Groups   | Administrator only                                          |
+| **Opportunities** | Tenders, Buyer Leads, RFQs, Export Opportunities, Trade Intelligence, Saved Opportunities, My Opportunities | All five roles |
+|                  | AI Assistant      | Administrator, Marketing Manager, Marketing Analyst          |
+|                  | Data sources, Interest profiles, Import data | Administrator, Marketing Manager           |
+| **Administration** | Admin centre    | Administrator only                                          |
+|                  | Planning & performance | Administrator only                                      |
+|                  | Corporate marketing plan | Administrator only                                    |
+|                  | Business groups   | Administrator only                                          |
 |                  | Customers         | Administrator only                                          |
 |                  | Products          | Administrator only                                          |
-|                  | Product Catalogue | Administrator only                                          |
-|                  | Regions & Outlets | Administrator only                                          |
+|                  | Competitors       | Administrator, Marketing Manager                            |
+|                  | Product catalogue | Administrator only                                          |
+|                  | Regions & outlets | Administrator only                                          |
+|                  | AI Renewal        | Administrator only                                           |
+| **Support**      | Help Center, Take a Tour | All five roles                                       |
+
+> **Note:** `/admin/relationship-configuration` still exists (Administrator data via API)
+> and has its own tour + help article, but it is **no longer linked in the sidebar** —
+> reach it by URL directly.
 
 ### Global components
 - **Shell** — persistent layout with collapsible sidebar + top bar; the current page title and
-  breadcrumb context come from the routing tree. Top bar includes notification bell
+  breadcrumb context come from the routing tree. Top bar includes a role pill, notification bell
   (30s polling with unread count badge, "99+" overflow), dark mode toggle, and
   user avatar dropdown (Profile, Sign out).
+- **Global AI launcher** — floating wand button on every signed-in page (Administrator,
+  Marketing Manager, Marketing Analyst) opening an "Ask AI" side sheet with the current
+  page pre-attached as context; first use shows a welcome dialog.
+- **Guided tours** — most pages carry a "Take a tour" / "Show me how" trigger; first-time
+  users get a one-off "New here?" prompt offering the welcome tour. Completion state is
+  stored per user (`kgmis_tour_done_<userId>`) and shown as a "Completed" badge in `/tours`.
 - **Guard** — wraps every internal page. When unauthenticated it redirects to
   `/login`; when a page declares a restricted role (e.g. Admin Centre two-level
   `Guard` + `RequireRole`) it shows a 403-style message instead of content.
@@ -183,8 +232,13 @@ user's assigned regions. `UserRegionAssignment` holds the mapping.
 - **Inline alerts** — page-level fetch failures show a red `.alert.alert-error`
   banner at the top of the relevant card.
 - **Dark mode** — toggle in top bar, persisted to `localStorage` (`kgmis_theme`), inline
-  script in layout to prevent FOUC (flash of unstyled content).
+  script in layout to prevent FOUC (flash of unstyled content). The public pages
+  (`/`, `/features`, `/team`) keep a separate toggle (`kgmis_landing_theme`).
 - **User profile** — sidebar bottom shows user avatar/name/role, clickable to `/profile`.
+- **Keyboard shortcuts** — form builder: `Ctrl/Cmd+Z` undo, `+Shift`/`+Y` redo, `+D`
+  duplicate, `+C`/`+V` copy/paste, `+A` select all, `Delete` remove, `Esc` deselect;
+  Help search: `↑`/`↓`/`Enter`/`Esc`; modals and the tour popover close on `Esc`;
+  screenshot lightbox: `Esc`/`←`/`→`.
 
 ---
 
@@ -252,6 +306,13 @@ Row-level scope: `all` | `own` | `region` (region = only rows in the user's
 | weeklySales.view        | full          | full             | read              | read-own      | read  |
 | competitors.view        | full          | full             | read              | read          | —     |
 | competitors.manage      | full          | full             | —                 | —             | —     |
+| tenders.view            | full          | full             | read              | read          | read  |
+| tenders.save            | full          | full             | full              | full          | full  |
+| tenders.manageSources / manageProfiles / collect / verify | full | full | —         | —             | —     |
+| tenders.aiEnrich        | full          | full             | full              | —             | —     |
+| forms.aiAssistant (Ask AI, form assistant, predictive) | full | full | full      | —             | —     |
+| ai.renewal              | full          | —                | —                 | —             | —     |
+| weeklySales.update      | full          | full             | —                 | write-own     | —     |
 | sync.trigger / sync.viewLogs | full     | —                | —                 | —             | —     |
 | admin.* (all)           | full          | —                | —                 | —             | —     |
 | reports.view            | full          | full             | full              | read          | read  |
@@ -269,7 +330,8 @@ the `can()` middleware. Scope predicates also apply at the SQL level (e.g. `own`
 - Local form: **Username** + **Password**, with placeholder `e.g. field1`.
 - On success → toast `Welcome, <name>` → redirect to `/dashboard`.
 - On failure → toast with the API error message.
-- Footer note: "Development build — CUAS SSO is wired in production."
+- **"Take a tour"** link starts the sign-in tour without authenticating.
+- Public pages (`/`, `/features`, `/team`) redirect authenticated users to `/dashboard`.
 
 ### Auth endpoints
 | Endpoint | Purpose |
@@ -290,12 +352,20 @@ the `can()` middleware. Scope predicates also apply at the SQL level (e.g. `own`
 
 ## 7. Module: Landing page
 
-Route: `/` (root). Public, no authentication required.
+Route: `/` (root). Public, no authentication required. Authenticated users are
+redirected to `/dashboard`.
 
-A marketing-style hero page for KG-MIS with:
-- Product branding and tagline.
-- Capabilities showcase highlighting the system's core features.
-- Call-to-action linking to `/login`.
+A marketing-style page for KG-MIS with:
+- Hero: "Enterprise Marketing Intelligence" badge, product name/tagline, two CTAs —
+  **Access Role-based Modules** → `/login` and **Explore Intelligence** → `/features`.
+- **Six Pillars of Intelligence** section (renders all 8 pillar cards: KPI, tenders, AI,
+  competitor, field, forms, reports, admin) with an expand-all/collapse-all deep-dive.
+- **Built for Every Role** — five role cards; trust-stats band (customers, products,
+  KPIs, report types, forecast modules, roles); comparison table; CTA band; footer
+  (Features, Team).
+- **Public AI assistant** — floating "KG-MIS site assistant" chat answering questions
+  about the product only (no KG-MIS data; 8-turn/800-char history cap, disclaimer shown).
+- **Theme toggle** persisted separately as `kgmis_landing_theme`.
 
 ---
 
@@ -318,18 +388,32 @@ Route: `/dashboard`. Shows a comprehensive summary of market intelligence:
 | Form Responses | `FormResponse` count |
 
 ### Charts & visualisations
+- **Predictive insights** — forecast cards for 11 modules (sales, weekly sales, KPI,
+  competitor price, pricing, products, customers, surveys, interviews, visits,
+  multimedia) with confidence badges (High/Moderate/Low/Insufficient), next-period value
+  + range, month-over-month change, model name, anomalies and risk/opportunity signals.
+  Hidden entirely when the role lacks permission ("Insufficient" confidence is shown
+  instead of a forecast when fewer than 8 periods of data exist). See [§21](#21-module-ai-assistant--predictive-insights).
 - **Customers by Type** — donut chart.
-- **Products by Category** — bar chart.
-- **Top Officers** — ranked table with gold/silver/bronze rank badges.
+- **Products by Category** — bar chart; **Products by Color** when colour data exists.
+- **Top Officers** — ranked table with gold/silver/bronze rank badges (→ `/admin/kpi`).
 - **Generated alerts** — severity-coloured list of system alerts.
-- **Recent notifications** — latest 5 notifications with channel icons.
+- **Recent notifications** — latest 6 notifications with channel icons.
 - **AI Insights** — generated from `/reports/ai-insights`: KPI values plus plain-text
   observations (highest-sales region, best product, average gap, review rate,
-  published forms/responses). 🟡 This is a rule-based aggregate, **not** ML.
+  published forms/responses, total shops visited). 🟡 This is a rule-based aggregate,
+  **not** ML.
+- **Insights & Observations** — additional rule-based narrative lines.
 
 ### Quick capture grid
 - 10 quick-link tiles to all major features (log visit, conduct interview, submit sales, view KPIs, etc.).
+- **Quick actions** — four shortcut cards (log a market visit, conduct an interview,
+  submit weekly sales, view KPI performance).
 - Skeleton loading states for all sections on initial load.
+
+> **Note:** the quick-link tiles to `/admin/customers`, `/admin/products` and
+> `/admin/kpi` are not role-filtered on this page — the target screens still enforce
+> Administrator-only access.
 
 ---
 
@@ -342,13 +426,20 @@ Route: `/notifications`. Lists the current user's **delivery history**.
 - **All** — all notifications.
 
 ### Features
-- **Event filter** — dropdown with 12+ event types (NewReport, PriceGapAlert, SyncFailure, etc.).
+- **Event filter** — dropdown with exactly 12 options: `NewReport`, `PriceGapAlert`,
+  `SyncFailure`, `NewInterview`, `FORM_PUBLISHED`, `OWNERSHIP_TRANSFERRED`,
+  `PARENT_FORM_UPDATED`, `SUBMISSION_CONFIRMED`, `NEW_RESPONSE_RECEIVED`,
+  `RESPONSE_LIMIT_WARNING`, `FORM_ASSIGNED`, `RESPONSE_EDITED`.
 - **Columns**: Event | Subject | Channel | Status | Attempts | Created.
 - **Mark read** — individual mark-as-read button per row; "Mark all read" bulk action.
 - **Unread count** — polled every 30 seconds in the Shell top bar; badge shows "99+" for large counts.
+- **Pagination**: 20 per page.
 
-### Channels supported (sent this release): `Email`
-- `SMS`, `WhatsApp`, `Push`, `In-App` exist in the channel dropdown but are **not** dispatched in this build.
+### Channels supported: `Email` only
+- The channel list, the admin config dropdown and the API validation are **Email-only**
+  (`SUPPORTED_CHANNELS = ['Email']`). Legacy `SMS` rows may exist from seed data and
+  still render channel icons historically, but no SMS/WhatsApp/Push/In-App message is
+  ever dispatched by this build.
 
 ### Delivery
 - Fire-and-forget with up to 2 attempts (initial + one automatic retry).
@@ -357,15 +448,19 @@ Route: `/notifications`. Lists the current user's **delivery history**.
   users whose role has an enabled `NotificationConfig` row for the trigger event.
 - 🟡 In development every send is **mocked** (status logged, no real email).
 
-### Trigger events (31 types)
+### Trigger events (24 canonical types)
 `NewReport`, `ReportApproved`, `ReportRejected`, `InterviewApproved`, `InterviewRejected`,
 `PriceGapAlert`, `SyncFailure`, `FORM_ASSIGNED`, `FORM_REMINDER`, `SUBMISSION_CONFIRMED`,
 `NEW_RESPONSE_RECEIVED`, `RESPONSE_LIMIT_WARNING`, `FORM_PUBLISHED`, `FORM_INVITE`,
 `OWNERSHIP_TRANSFERRED`, `ACCESS_DENIED`, `PARENT_FORM_UPDATED`, `PARENT_PROPAGATED`,
 `FORM_RESUME`, `REPORT_SHARED`, `RESPONSE_EDITED`, `ANOMALY_FLAGGED`,
-`CONSENT_VERSION_BUMPED`, `NEW_PLAN_CREATED`, `NewFormCreated`, `NewWeeklySales`,
-`NewCompetitorPricing`, `NewMultimedia`, `NewFormResponse`, `NewMarketVisit`,
-`NewCustomerInterview`, `GapAlert`.
+`CONSENT_VERSION_BUMPED`, `NEW_PLAN_CREATED`.
+
+This set (`backend/src/security/eventTypes.ts`) is what the Admin Centre config
+dropdown offers and what `POST/PUT /admin/notification-config` validates against.
+Two additional tender events are dispatched by the Opportunities module and seeded by
+migration 033: `TENDER_NEW_MATCH` (high-relevance items found) and
+`TENDER_DEADLINE_REMINDER` (daily reminder for saved opportunities).
 
 ---
 
@@ -378,8 +473,9 @@ Route: `/visits`. Field Officers capture outlet visits; Managers/Admins review t
 | ------------------ | ------------ | -------- | -------------------------------------- |
 | Outlet             | Select       | Yes      | From reference `/outlets`              |
 | Visit date         | Date (yyyy-mm-dd) | Yes |                                      |
-| Visit type         | Select       | No       | configurable via lookups               |
+| Visit type         | Select       | Yes      | configurable via lookups               |
 | Business group     | Select       | No       | Filters products/outlets               |
+| Number of shops visited | Number  | No       | Integer ≥ 0; surfaced on dashboard, reports and KPI ranking |
 | Stock level observed | Select     | No       |                                        |
 | Competitor presence noted | Checkbox | No     |                                        |
 | Key findings       | Textarea     | No       | Up to 4000 chars                       |
@@ -492,7 +588,7 @@ share `/forms`. Support for public respondents (no login) and internal Field Off
 ### 13.2 Form page (`/forms/[id]`) — main tabs: Builder, Settings, Responses, Report
 
 #### Builder tab (FormBuilder)
-- **30 field types** across 8 categories (see §22 for the full table).
+- **30 field types** across 8 categories (see §25 for the full table).
 - **Toolbar**: Undo / Redo; dirty badge shows "Undo RedoX fields · scoring max N ·
   Unsaved changes" when applicable.
 - **Rearrange** by dragging; Ctrl+Click to multi-select; **copy/paste** (Ctrl+C/V),
@@ -550,7 +646,7 @@ share `/forms`. Support for public respondents (no login) and internal Field Off
 - **Request erasure (GDPR)**: inserts `ErasureRequest` (Pending). A scheduled job
   purges data for requests older than 30 days (answers + files deleted, response marked
   `IsErased`, email/IP cleared).
-- **Anomalies**: flags auto-detected on submission (see §22); manager/admin can set
+- **Anomalies**: flags auto-detected on submission (see §25); manager/admin can set
   status `Pending → Acknowledged → Resolved` with a note. An "Auto-reject" toggle on
   the form would reject flagged responses only when `AutoRejectAnomalies` is on (the
   detection itself never deletes/rejects).
@@ -590,6 +686,13 @@ share `/forms`. Support for public respondents (no login) and internal Field Off
 ### 13.4 Public share (`/share/[token]`)
 - Computed read-only report rendered from the token — no session required; the token is
   the only credential. Revoked/expired tokens 404.
+
+### 13.5 Three "public" entry points compared
+| Route | Auth | Purpose |
+| ----- | ---- | ------- |
+| `/forms/[id]/public` | None (anonymous) | **Fill in and submit** a Published + `Public` form without signing in. Shows password gate (Password mode), consent panel, publish/expiry/max-response blocks; `?submitted=1` shows the thank-you banner. Reached from the form header button **"Open public form"** or the URL shown in **Settings**. |
+| `/forms/[id]/respond` | Signed in (`Guard`) | Respondent entry for Field Officers; supports **Save & resume** via `?resume=<token>`. |
+| `/share/[token]` | Token only | **Read-only report** of collected responses (charts), created from the Report tab → Share links. |
 
 ---
 
@@ -634,17 +737,21 @@ Administrator can configure per-category threshold percents (`pricing.configureT
 
 Route: `/weekly-sales`. Field Officers capture weekly sales data per product/outlet.
 
-### Fields (create modal)
+### Fields (create/edit modal)
 | Field              | Type     | Notes                                      |
 | ------------------ | -------- | ------------------------------------------ |
 | Week ending        | Date     | Yes                                        |
 | Business group     | Select   | Filters products and customers             |
-| Customer           | Select   | Shows customer type                        |
-| Product            | Select   | Auto-fills unit price from product-prices API |
+| Customer           | Select   | Yes; shows customer type                   |
+| Product            | Select   | Yes; auto-fills unit price from product-prices API |
 | Region             | Select   | Yes                                        |
 | Outlet             | Select   | Yes                                        |
 | Quantity sold      | Number   | Yes, > 0                                   |
 | Unit price (ETB)   | Number   | Auto-populated, editable                   |
+| Color              | Select/Text | Optional; resolved through the product colour master |
+| Size               | Text     | Optional                                   |
+| Category           | Text     | Optional                                   |
+| Specifications     | Key/value rows | Optional multi-row spec editor         |
 | Notes              | Textarea | No                                         |
 
 ### Features
@@ -652,7 +759,10 @@ Route: `/weekly-sales`. Field Officers capture weekly sales data per product/out
 - **Auto-price lookup**: fetches tier price based on product + customer type via `/reference/product-prices`.
 - **Business group filtering**: products and customers filtered by selected business group.
 - **Summary stats**: entry count, total quantity, total revenue (ETB).
-- **Filters**: search text, date, region, business group, customer type, status.
+- **Row actions**: **View** (detail modal incl. product attributes and "Last edited"),
+  **Edit** (opens the same modal → `PUT /weekly-sales/:id`), **Delete**
+  (`DELETE /weekly-sales/:id`) with a confirm prompt.
+- **Filters**: search text, week ending date, region, business group, customer type, status (`Submitted | Reconciled | Rejected`), color.
 - **Delete**: only own entries (Field Officer) or all (other roles with write-own+).
 - **Unique constraint**: one entry per WeekEnding + ProductID + OutletID combination.
 
@@ -690,50 +800,57 @@ Route: `/officer/performance`. Self-service performance dashboard for field offi
 
 ## 17. Module: Reports & Power BI
 
-Route: `/reports`. Tabs: **13 sub-tabs**.
+Route: `/reports`. Tabs: **14 sub-tabs**.
 
 ### Tab 1: AI Insights
 Rule-based aggregate + plain-text "observations". KPIs: Total sales (ETB),
-Active price gaps, Market visits, Form responses. Generated at request time.
+Active price gaps, Market visits (incl. total shops visited), Form responses. Generated at request time.
 🟡 Not ML — deterministic statistics over the reporting views.
 
-### Tab 2: Sales
+### Tab 2: Ask AI
+Natural-language Q&A over MIS data (`POST /ai/ask`) using the shared chat component —
+27 read/predict tools chosen by the model, every answer lists the "Data used" sources.
+Administrator, Marketing Manager and Marketing Analyst only; attachments (≤10 MB) can be
+attached from the paperclip button. See [§21](#21-module-ai-assistant--predictive-insights).
+
+### Tab 3: Sales
 Filters: `from`, `to`, region. Output: Total sales (ETB), orders, units sold, products
 sold, regions covered; **Sales by region** bar chart; **Top 10 products** table
 (quantity + amount). Source: `vw_Report_SalesByOutlet`.
 
-### Tab 3: Customers
+### Tab 4: Customers
 Filters: region, business group, customer type. Four bar charts: by type, by region, by business group, by star rating.
 
-### Tab 4: Products
+### Tab 5: Products
 Filters: category, business group. Charts: by category, by business group. Pricing tiers table.
 
-### Tab 5: Market Visits
-Filters: `from`, `to`, region. Output: status counts, detail table. Source: `vw_Report_MarketVisits`.
+### Tab 6: Market Visits
+Filters: `from`, `to`, region. Output: status counts, a **Shops Visited** KPI card,
+**Shops visited by region** bar chart, detail table (with a Shops column). Source: `vw_Report_MarketVisits`.
 
-### Tab 6: Price Comparison
+### Tab 7: Price Comparison
 Filters: region, category. Table: Product, Competitor, Competitor price, Own price,
 Gap (%), Region, Date. Source: `vw_Report_PriceComparison`.
 
-### Tab 7: Competitor Intel
+### Tab 8: Competitor Intel
 By competitor summary, recent intelligence table.
 
-### Tab 8: Interviews
+### Tab 9: Interviews
 Sentiment breakdown (positive/neutral/negative bar chart), by region, sentiment donut.
 
-### Tab 9: Weekly Sales
+### Tab 10: Weekly Sales
 Revenue by region, top products by revenue.
 
-### Tab 10: KPI Performance
+### Tab 11: KPI Performance
 By officer ranking, KPI breakdown, frequency filter.
 
-### Tab 11: Forms
+### Tab 12: Forms
 Form response answers table.
 
-### Tab 12: Availability
+### Tab 13: Availability
 Product availability by outlet with availability rate badges.
 
-### Tab 13: Power BI 🟡
+### Tab 14: Power BI 🟡
 - Reads role-assigned catalogue (`GET /reports/powerbi/views`): Sales Growth,
   Market Share & Price Gaps, Product Availability, Forms & Survey Analytics.
 - "Open" returns a placeholder **embed token** (`MOCK_EMBED`); the embed panel renders
@@ -836,6 +953,95 @@ Route: `/admin`. **Administrator only** (second-level `RequireRole`). Multiple a
 - Relationship types: One-to-Many, One-to-One.
 - Required/optional, display order, active/inactive.
 - Used by forms to auto-filter dependent dropdowns (cascading filters).
+- ⚠️ No sidebar entry (see §4) and **no in-page role gate** — data access is still
+  enforced server-side by `can('admin.relationshipConfig')`, so non-administrators see a
+  failed-fetch state rather than a 403 screen.
+
+### 18.9 Competitors (`/admin/competitors`)
+Master data for competitor products and pricing feeding `/pricing` and the Competitor
+Intel reports. Visible in the sidebar to **Administrator + Marketing Manager**; the API
+enforces `competitors.view` (Admin/Manager full, Analyst/Field read) and
+`competitors.manage` (Admin/Manager). The page itself only requires sign-in — opening
+the URL with another role shows the list but every write action returns 403.
+
+- **Filters**: search, competitor, category, status (`All / Active / Inactive / Expired`);
+  deep-linkable via `?search=` and `?category=`. Pagination 20/page.
+- **Table**: checkbox · Competitor · Product/model · Category · Our product (badge, or amber
+  **"Not linked"** — clickable to open the edit modal) · Own price · Competitor price
+  (range) · Price difference / Diff % (colour-coded) · Effective · Status · View/Edit/Delete.
+- **Add/Edit modal**: competitor select with inline **＋** competitor creation, product\*,
+  category\* (datalist), **Our product** (optional, grouped Same category first, fresh fetch
+  with Retry), price\*, price max, effective date, status, notes, and a key/value
+  **Specifications** editor.
+- **Bulk link/unlink**: tick rows → choose "our product" → **Link**/**Unlink** (with confirm).
+  Linking recomputes the gap and creates/refreshes a `PriceGapAlert` when
+  `|gap| ≥ category threshold`; unlinking removes the stale alert.
+- **View modal**: read-only fields, humanized specifications, collapsible raw JSON.
+- Delete: native confirm; dependent gap alerts removed server-side. Deleting a competitor
+  *entity* is blocked while products reference it (`409 … delete them first`) and is only
+  available via the API (no entity edit/delete UI yet).
+- **No import/export on this screen** — the catalogue is loaded by
+  `npm run db:seed:competitors`. Toasts: `Competitor product created. Gap: 12.34%.`,
+  `Gap alert created.`, `Linked N row(s)`.
+- Guided tour `admin-competitors` + Help Center guide `admin-competitors` are available;
+  `/pricing` links here ("Prices are maintained in Admin › Competitors").
+
+### 18.10 Corporate Marketing Activities Plan (`/admin/corporate-marketing`)
+Administrator-only (`Guard` + `RequireRole`; API under `can('admin.users')`). Digitises the
+annual **KG Corporate Marketing_Plan_and_Activities.xlsx** workbook: monthly activity tasks
+(49 parent activities × 4 sub-tasks × 12 months) with a verify/reject workflow, plus an
+**Events & Campaigns** register (`EVT-001…`). A deeper guide lives in
+`Docs/User Guide-Docs/KG-MIS_Corporate_Marketing_Plan_User_Guide_v1_0.md` (note: that guide
+predates CRUD/import/export and its FAQ is out of date).
+
+- **Hero**: 4 stats (Tasks, Verified, Completion %, Events) + **Import Workbook** button +
+  tour trigger. Tabs: **Dashboard · Monthly Plan · Events & Campaigns · User Guide**.
+- **Dashboard**: Year + Month filters; 8 stat cards (Total/Verified/Not verified/Rejected,
+  Avg completion, Assigned, Events planned/completed) and a "Rollup by responsible role" table.
+- **Monthly Plan**: filters (Year, Month, Responsible role, Status, search), 4 stat cards,
+  **CSV / Excel** export buttons, **＋ Add task**. Table grouped by parent activity with
+  inline **Person / Completion % / Evidence** editing + **Save**, per-row **Edit** modal,
+  **Verify ✓** / **Reject ✗** (reject prompts for a required note) and **Delete** with a
+  confirm modal. Rows are requeued from `Rejected` to `Not Verified` when edited.
+  **Pagination: 50 per page.**
+- **Events & Campaigns**: status filter + search, CSV/Excel export, **＋ Add event**,
+  edit/delete; columns cover category, BU, dates (derived month/ISO week), status,
+  budget/cost/variance, leads/conversions, ROI, reach, engagement. Pagination 50/page.
+- **Workbook import**: `.xlsx` only, ≤20 MB, target-year selector; expects month sheets
+  `Jan…Dec` (cols: 1 Task name, 3 Main activity/KPI, 5 Responsible role, 10 TaskId,
+  11 ParentCode) and an `Events & Campaigns` sheet (`EVT-###` codes in col 1). Upserts are
+  idempotent — matched tasks only refresh name/role; blank event cells never clear data.
+  Result cards show Parents / Tasks / Events / Errors; a red error list names each failed row.
+- **Toasts**: `Task MAR-MK-001-01 created/saved/verified/rejected/deleted`,
+  `EVT-007 created/saved/deleted`, `Tasks exported as CSV|XLSX`,
+  `Imported: N parents, N tasks, N events`.
+- Guided tour `admin-corp-marketing` (no Help Center guide yet).
+
+### 18.11 AI Renewal (`/admin/ai-renewal`)
+Administrator-only end to end (`Guard` + `RequireRole`; API under `can('ai.renewal')`).
+Manages the Gemini/Groq API keys used by the AI features and the scheduled rotation
+reminder. Full operational guide: `Docs/AI_Renewal_Guide.md`.
+
+- **Provider cards (Gemini, Groq)**: status badge `Available` / `Configured — Unavailable` /
+  `Not Configured`, model, password-masked **API key** input with reveal toggle, provider
+  console link (Google AI Studio / Groq Console), and **Test Connection** (validates without
+  saving), **Save / Renew** (validates, then persists and applies at runtime — no restart),
+  **Cancel**. Stored keys are never displayed back.
+- **Scheduled Key Rotation**: **Enable Rotation Reminders** toggle, **Rotation Interval
+  (days)** (1–365, default 90), read-only **Next Rotation Due** (red badge
+  "Rotation due — provide new key" when due), **Provider to Rotate**, **Save Rotation
+  Settings** (always available — the settings live on their own tab). Rotation is a
+  *reminder only* — nothing is
+  auto-generated or swapped; the old key keeps serving traffic.
+- **Daily cron 02:00 UTC** marks `due` once `nextRun` passes (audit `AI_ROTATION_DUE`).
+  Saving rotation settings clears the due flag. No notification/e-mail is sent — the badge
+  and the audit log are the only signals ⛔.
+- **Audit events**: `AI_KEY_RENEWED`, `AI_ROTATION_CONFIG_UPDATED`, `AI_ROTATION_DUE`
+  (key material is never logged). Config lives in `.env`/`SystemConfig` (dev writes
+  `backend/.env` atomically; production uses `dbo.SystemConfig`).
+- Error codes from Test/Save: `INVALID_CREDENTIALS`, `RATE_LIMITED` (a rate-limited probe
+  never overwrites a working key), `TIMEOUT`, `NETWORK_ERROR`, `MODEL_UNAVAILABLE`,
+  `PROVIDER_UNAVAILABLE`, `INVALID_PROVIDER`.
 
 ---
 
@@ -850,7 +1056,228 @@ Route: `/admin`. **Administrator only** (second-level `RequireRole`). Multiple a
 
 ---
 
-## 20. Key workflows (step by step)
+## 20. Module: Opportunities & Tenders
+
+Sidebar section **Opportunities**. A pipeline for external business opportunities:
+**Discovery → Qualification → Tracking**.
+
+1. **Discovery** — 5 seeded API sources (e-GP Ethiopia, 2merkato ×2, TenderInfo.org,
+   TenderMetro) are collected on demand ("Collect Now" / "Collect All") or by scheduled
+   cron when `TENDERS_COLLECTION_ENABLED=true` (default **off**). Each run covers a 7-day
+   rolling window; items are normalised, hash-deduplicated (cross-provider), classified
+   (opportunity type + product group), quality-scored, then relevance-scored. Restricted
+   hosts are never fetched. Per-source **AI auto-enrichment** (`AiAutoEnrich`, off by
+   default) summarises and structurally extracts newly inserted rows.
+2. **Qualification** — every opportunity is scored **0–100** against active **Interest
+   Profiles** (11 weighted components: keywords 28, product group 14, sector 12, country 9,
+   organisation 8, value 6, deadline 5, type 5, business unit 4, source quality 4,
+   historical save-rate 5). The detail page's **"Why?"** button shows the breakdown.
+   Field-presence **Confidence** (0–100) and **Data quality** (Complete ≥70 / Partial ≥40 /
+   Sparse) are computed at insert.
+3. **Tracking** — **Save** an opportunity and move it through 7 pursuit statuses
+   (`New → Reviewing → Interested → Applied → Won / Lost / Archived`) with notes.
+
+### 20.1 Routes & roles (sidebar "Opportunities")
+
+| Route | Label | Content | Roles |
+| ----- | ----- | ------- | ----- |
+| `/tenders` | Tenders | Explorer + dashboard: 9 KPI cards (Total, New This Week, Deadlines Soon, High Relevance, Saved, RFQs, Buyer Leads, Export non-Ethiopia, Trade Intel), Upcoming Deadlines (top 5), 7 breakdown charts (country/sector/type/source/product group, relevance donut, deadlines per week) | All five |
+| `/tenders/buyer-leads` | Buyer Leads | Explorer preset `type = BUYER_LEAD` | All five |
+| `/tenders/rfqs` | RFQs | Explorer preset `type = RFQ` | All five |
+| `/tenders/export` | Export Opportunities | Opportunities outside Ethiopia | All five |
+| `/tenders/trade` | Trade Intelligence | `type = TRADE_INTELLIGENCE` (shipment/import-export signals) | All five |
+| `/tenders/saved` | Saved Opportunities | Current user's bookmarks | All five |
+| `/tenders/my-opportunities` | My Opportunities | **Identical to Saved by design** (both nav items are kept) | All five |
+| `/tenders/assistant` | AI Assistant | Natural-language questions over opportunity data (`POST /ai/ask`) | Admin, Manager, Analyst |
+| `/tenders/sources` | Data sources | Source CRUD, Test, Collect Now, Collect All | Admin, Manager |
+| `/tenders/interest-profiles` | Interest profiles | Scoring target CRUD (changes trigger a background re-score) | Admin, Manager |
+| `/tenders/import` | Import data | 5-step Excel/CSV import wizard | Admin, Manager |
+| `/tenders/[id]` | (detail) | Single opportunity | All five (view); enrich/verify are manager-level |
+
+### 20.2 Explorer (all preset routes)
+- **Columns**: Title, Organization, Country/Region, Sector/Product group, Type badge,
+  Deadline (orange when ≤7 days), Value, Relevance badge (High ≥70 / Medium ≥40 / Low),
+  Confidence + Data quality, Verified, bookmark toggle.
+- **Filters**: search, country, sector, type, product group, verification, relevance,
+  "Saved only"; **More filters** adds source, organization, business group, confidence,
+  data quality, publication/deadline date ranges, "Export only". Pagination 20/page;
+  changing any filter resets to page 1.
+- **Actions**: bookmark/unsave (all roles, `tenders.save`); **＋ Add Tender** (managers;
+  Title + Source URL required, type has an "Auto-detect" default).
+- **No CSV/Excel export of opportunities exists** — "Export Opportunities" is a *filtered
+  view*, not a file download. Only import templates are downloadable.
+
+### 20.3 Detail page
+- Header badges (Type, Product group, Region, Confidence, Data quality, Verified) and the
+  **"Why?"** modal (score total, matched keywords, per-component points table).
+- **Opportunity details**, description, and **AI Summary & Extraction** — either the
+  enrichment result (summary, value/eligibility/documents/contact/dates, per-field basis
+  `confirmed|inferred|uncertain|unavailable`, business-fit note) or the
+  **Run AI Enrichment** button (Admin/Manager/Analyst).
+- **Save & Track** card: status dropdown + notes → Update / Unsave / Save Opportunity.
+- **Verification** card (Admin/Manager): Mark Verified / Unverified.
+- Metadata: created date, content hash.
+
+### 20.4 Data sources page
+- Table: Name (+ Restricted/Inactive badges), Type (api/rss/scraping), URL, Schedule label,
+  Rate limit, Quality badge, Robots, Active toggle, **AI auto-enrich** toggle, Last run
+  status/error, Last collected, Total. Actions: **Test** (dry run — shows duration, fetched
+  count, 5 samples, "Nothing was saved"), **Collect Now**, **Edit**, **Delete**, **Collect All**.
+- Add/Edit modal: name, type, URL, adapter config JSON, schedule (1h/6h/12h/24h label),
+  rate limit, quality score, robots, active, AI auto-enrich.
+- Status model: `LastCollectionStatus` = Success / Failed / Partial (duplicates count as
+  Success). Restricted hosts (via `TENDERS_RESTRICTED_HOSTS`) are stored inactive, can
+  never be activated, and are never fetched. Deleting a source preserves its opportunities.
+- Seeded sources (from `npm run db:seed:tenders`): e-GP Ethiopia, 2merkato Tenders (free),
+  2merkato Tenders (full listing), TenderInfo.org Ethiopia, TenderMetro (seeded **inactive**
+  until `TENDERMETRO_API_KEY` is set). The per-source schedule label is informational —
+  each cron run collects **all active sources**.
+
+### 20.5 Interest profiles
+- Table: Name, Sectors, Keywords, Countries, Budget range, Types & units, Status, Updated.
+- Create/Edit: name\*, sectors, keywords, countries, organizations, product-group codes,
+  opportunity-type checkboxes, business-unit codes, min/max value, currency, active.
+  Create/update/delete kick a background full re-score (toast: "relevance scores
+  recalculating in the background"). Delete confirms that existing scores persist until
+  the next re-score.
+
+### 20.6 Import wizard (5 steps)
+1. **File** — `.csv`/`.xlsx`/`.xls`, ≤5 MB, ≤2000 rows, ≤40 columns, header row required;
+   template download (Excel or CSV, 12 canonical columns + 2 examples).
+2. **Mapping** — alias-based auto-suggestion, worksheet selector; required **Title\*** and
+   **SourceUrl\***; blocks on missing/duplicate mappings.
+3. **Preview** — counts (total/ready/invalid/duplicate) + first 200 rows with per-field issues.
+4. **Confirm** — imported rows are created **Unverified** and scored against interest profiles.
+5. **Summary** — Imported / Duplicates skipped / Invalid skipped / Failed / High relevance
+   cards, duration, error table (first 100 issues), links onward.
+- Duplicates are never overwritten; staged files are purged after 24 h; history comes from
+  the audit log (`TENDER_IMPORT`). High-relevance imports fire `TENDER_NEW_MATCH`.
+
+### 20.7 Notifications & scheduled jobs
+| Event | Trigger | Recipients |
+| ----- | ------- | ---------- |
+| `TENDER_NEW_MATCH` | Collection/import produces items with Relevance ≥ threshold (default 70) | Admin, Manager, Analyst (per seeded NotificationConfig) |
+| `TENDER_DEADLINE_REMINDER` | Daily cron (`TENDERS_REMINDER_CRON`, default 09:00 UTC) | The individual user who saved the opportunity; deadlines within `TENDERS_REMINDER_LEAD_DAYS` (default 7); Won/Lost/Archived excluded; one reminder per opportunity per day |
+
+### 20.8 API surface (`/api/v1/tenders`)
+`GET /dashboard`, `/countries`, `/sectors`, `/product-groups`, `/business-groups`, `/`
+(list with ~17 filters, pageSize ≤100 default 20), `/saved`, `/sources`,
+`/interest-profiles`, `/imports`, `/imports/template`, `/:id` ·
+`POST /` (manual create), `/:id/save`, `/:id/verify`, `/:id/ai-enrich`,
+`/:id/relevance-explanation`, `/sources`, `/sources/test`, `/sources/:id/test`,
+`/sources/:id/collect`, `/sources/collect-all`, `/interest-profiles`,
+`/imports/parse`, `/imports/commit` ·
+`PUT /:id/save`, `/sources/:id`, `/interest-profiles/:id` ·
+`DELETE /:id/save`, `/sources/:id`, `/interest-profiles/:id`, `/imports/:token`.
+Permissions: `tenders.view` (all roles read), `tenders.save` (all), `tenders.manageSources`
+/ `manageProfiles` / `collect` / `verify` (Admin/Manager), `tenders.aiEnrich`
+(Admin/Manager/Analyst).
+
+**Status notes:** scheduled collection off by default; RSS/scraping adapters exist but all
+seeded sources are API type; estimated value is legitimately null for some sources (e-GP
+has no value; TenderInfo price undisclosed); verification is manual; "Export
+Opportunities" is a view, not a file export.
+
+---
+
+## 21. Module: AI assistant & predictive insights
+
+KG-MIS ships one server-side AI stack (Ollama / Gemini / Groq, `AI_PROVIDER=auto` routes
+with fallback). There is **no mock path** — with no provider configured the API answers
+`503 AI_PROVIDER_UNAVAILABLE`. Permissions: `forms.aiAssistant` (Administrator, Marketing
+Manager, Marketing Analyst) unless noted; rate limit **30 requests/min/user** (anonymous
+public endpoints: 10/min/IP). API keys never reach the browser. Full reference:
+`Docs/AI_Form_Assistant.md`.
+
+### 21.1 Surfaces
+| Surface | Where | Endpoint(s) | Notes |
+| ------- | ----- | ----------- | ----- |
+| **Form Builder assistant** | Builder toolbar → drawer (Form / Responses / Data tabs) | `POST /ai/assistant`, `GET /ai/providers` | Proposes schema changes as a **preview → confirm → apply** flow; never writes directly |
+| **Writing assistant** | Respondent fields (✨ Improve grammar / Rephrase / Clarify / Shorten / Professional) | `POST /ai/writing` (auth), `POST /ai/public/writing` (anonymous) | Also on public fills |
+| **Response analysis** | Form → Report → AI analysis; AI drawer → Responses | `POST /ai/analysis` | Needs response-view rights + ownership |
+| **Ask AI (data Q&A)** | AI drawer → Data tab; Reports → **Ask AI** tab; `/tenders/assistant`; global launcher | `POST /ai/ask` | 27-tool read/predict catalogue chosen by the model; answer includes a **Data used** block; the model never writes SQL or data |
+| **Global AI launcher** | Floating wand on every signed-in page | `POST /ai/ask` + page `context` | Side sheet with automatic page-context chip; welcome dialog on first use |
+| **Chat attachments** | Paperclip in the Ask AI chat | `POST /ai/attachments`, referenced on `/ai/ask` | One file ≤10 MB (`csv, xlsx, xls, txt, md, json, log, pdf, docx`, images `png, jpg, jpeg, gif, webp`); text extracted server-side (20k char cap); **7-day TTL**, purged nightly 04:45 UTC |
+| **Public landing assistant** | Floating chat on `/` | `POST /ai/public/ask` | Static site knowledge only; no KG-MIS data |
+| **Tender enrichment** | Opportunity detail **Run AI Enrichment** + per-source auto-enrich | `POST /tenders/:id/ai-enrich` | See §20 |
+
+Conversation turns are persisted to `AiConversation` (user, role, provider/model, message,
+duration, success/error) for Ask AI, assistant and analysis — not for writing/public turns.
+Input extras on the chat: emoji picker, browser voice dictation, per-user voice replies.
+
+### 21.2 Predictive insights (deterministic forecasts — no LLM)
+- **11 modules**: sales, weeklySales, kpi, competitorPrice, pricing, products, customers,
+  surveys, interviews, visits, multimedia.
+- Each card: series → forecast with lower/upper band (RMSE-based) → backtest
+  (walk-forward MAE/RMSE/MAPE, naive/MA/trend/Holt/seasonal candidates, best MAE wins) →
+  **confidence** (High / Moderate / Low / **Insufficient**) → anomalies (z-score) →
+  risk/opportunity signals → data gaps.
+- **Insufficiency gate**: fewer than 8 periods ⇒ no forecast, honest "Insufficient" card.
+- **Where**: Dashboard "Predictive insights" grid; also reachable through the 12
+  `forecast_*` / `predict_*` / `detect_anomalies` Ask AI tools.
+- **Endpoints**: `POST /ai/predictive`, `GET /ai/predictive/summary` (both
+  `forms.aiAssistant`, plus per-metric rights like `reports.view` inside the service).
+- **Cron**: nightly **15 4 * * *** refreshes every module and purges expired rows
+  (retention 90 days, cache TTL 60 min, kill switch `prediction.enabled=0`).
+- Seed data: `npm run db:seed:history` (~1,400 deterministic rows).
+
+### 21.3 AI Token Renewal
+Administered at **/admin/ai-renewal** — see [§18.11](#18-module-admin-centre).
+
+**Status markers:** form/writing/analysis/Ask AI/launcher/attachments/predictive = ✅ live;
+Reports "AI Insights" = 🟡 rule-based (not ML, see §17); rotation due → **no notification**
+⛔ (badge + audit log only); production secret-manager storage ⛔ (dev writes `.env`,
+production writes `dbo.SystemConfig`).
+
+---
+
+## 22. Module: Support & public pages
+
+### 22.1 Help Center (`/help`, `/help/[slug]`)
+- **Requires sign-in** (`Guard`). Content is static TypeScript under
+  `frontend/src/lib/help/` — not CMS/DB driven.
+- **8 categories**, **52 guides**, **51 FAQs**: Getting Started (9), Account & Security (4),
+  Field Intelligence (7), Analytics & Reports (4), Forms & Surveys (6),
+  Opportunities & Tenders (7), Administration (9), Troubleshooting & FAQ (6).
+- **Home**: category cards ("N guides · N FAQs"), 6 popular guides, FAQ list with category
+  chips, "Take the Help Center tour" + "Browse all tours" → `/tours`.
+- **Article page**: breadcrumb, role badges, **Quick facts** (Access / Inputs / Result),
+  **Role restrictions** note, body blocks (paragraphs, steps, bullets, tables, notes,
+  links), **Related help**, up to 8 FAQs. Not indexed by search engines
+  (`robots: noindex`).
+- **Search**: client-side ranked search over guides + FAQs (title > keyword > text),
+  max 24 results, `↑`/`↓`/`Enter`/`Esc` keyboard support; FAQ hits anchor to `/help#faq-<id>`.
+
+### 22.2 Guided tours (`/tours`)
+- **33 tours / 188 steps** in `frontend/src/lib/tours/` grouped as Getting started,
+  Overview, Field intelligence, Analytics, Opportunities, Administration, Support.
+- **Catalog `/tours`**: cards show title, steps, estimated minutes, and a **Completed**
+  badge (`kgmis_tour_done_<userId>`); **Start tour / Replay** navigates to the tour's
+  route. The sign-in tour is excluded (it runs on `/login`); the catalog shows only tours
+  the current role may take ("No tours are available for your role yet." otherwise).
+- **Launch points**: per-page **Take a tour / Show me how** triggers (~29 pages), a
+  one-off first-run **"New here?"** prompt offering the welcome tour, and the login page
+  link. Tours cover: sign-in, welcome, dashboard, notifications, profile, help, catalog,
+  visits, interviews, multimedia, weekly sales, forms, form builder, responding, pricing,
+  reports, officer performance, 6 opportunity tours, and 10 admin tours.
+- **Player**: popover footer (Skip · Step X of Y · Previous · Next/Finish), keyboard
+  control, dark-theme overlay, mobile selectors ≤900px, multi-route tours (≤6 s per hop),
+  completion toast ("replay it any time from Take a Tour").
+- No tour exists yet for `/admin/ai-renewal` and `/admin` has no in-page trigger.
+
+### 22.3 Public pages
+| Route | Purpose |
+| ----- | ------- |
+| `/features` | Capability showcase: hero stats, **Module Explorer** (pillar tabs + feature lists), **Role × Module matrix**, screenshot carousel with lightbox (`Esc`/`←`/`→`), technical specs, comparison table. Linked from the landing hero ("Explore Intelligence"). |
+| `/team` | "Development Team & Contributors" — contribution overview, six discipline chips, member cards (photo, role, contributions, mailto/LinkedIn/portfolio), CTA to `/features` and `/login`. The only SEO-indexed app surface. |
+| `/` | Landing page — see [§7](#7-module-landing-page). |
+
+Both `/features` and `/team` are public with their own theme toggle
+(`kgmis_landing_theme`) and footer links to each other and the landing page.
+
+---
+
+## 23. Key workflows (step by step)
 
 ### Workflow A — Build and publish a form (Manager/Analyst)
 1. Log in as `tsegaye.n` → **Forms & Surveys** → **New form** → title it, create.
@@ -924,18 +1351,61 @@ Route: `/admin`. **Administrator only** (second-level `RequireRole`). Multiple a
 10. **Products**: manage products with per-type pricing.
 11. **Product Catalogue**: upload product photos.
 12. **Regions & Outlets**: manage geographic hierarchy.
-13. **Relationship Configuration**: set up cascading dropdown rules.
-14. Trigger a **Sync** and check `/sync/logs`.
+13. **Relationship Configuration**: set up cascading dropdown rules (URL-only, see §18.8).
+14. **Competitors**: add a competitor product, bulk-link it to an own product (§18.9).
+15. **Corporate marketing plan**: import the workbook, verify/reject tasks, export CSV (§18.10).
+16. **AI Renewal**: check provider status, paste a fresh key, save rotation settings (§18.11).
+17. Trigger a **Sync** and check `/sync/logs`.
+
+### Workflow K — Discover & track an opportunity (Manager)
+1. `tsegaye.n` → **Opportunities → Tenders** → review the 9 KPI cards and charts.
+2. Open **Data sources** → **Test** a source → **Collect Now** (or **Collect All**).
+3. Back in the explorer → filter by relevance/country/deadline → open a high-relevance item.
+4. Read **"Why?"** (score breakdown) → optionally **Run AI Enrichment**.
+5. **Save Opportunity** → set status `Reviewing` → add notes → Update.
+6. Let the daily reminder cron notify you about deadlines ≤7 days away.
+
+### Workflow L — Import opportunities from a workbook (Manager)
+1. **Opportunities → Import data** → download the Excel/CSV template.
+2. Fill the template → **File** step (≤5 MB/2000 rows) → map columns (Title\*, SourceUrl\*).
+3. **Preview** (ready/invalid/duplicate counts) → **Confirm** → read the **Summary** cards.
+4. High-relevance imported rows raise `TENDER_NEW_MATCH`; duplicates are skipped, never overwritten.
+
+### Workflow M — Maintain the corporate marketing plan (Admin)
+1. `admin` → **Corporate marketing plan** → **Import Workbook** → pick target year + `.xlsx`.
+2. **Monthly Plan** → filter Year/Month → edit Person/Completion inline → **Save**.
+3. **Verify ✓** a finished task; **Reject ✗** another (note required) → edit it later to requeue.
+4. **＋ Add task** (optionally create a new parent activity inline) / **＋ Add event**.
+5. **CSV / Excel** export respects the active filters and ignores pagination.
+
+### Workflow N — Link competitor products to own products (Admin/Manager)
+1. `admin` → **Competitors** → **＋ Add competitor product** (create the competitor inline if new).
+2. Pick **Our product** → Create → toast shows the computed gap and any alert.
+3. Bulk: tick rows → choose an own product → **Link** (confirm) — alerts are created or cleaned up.
+4. Check **Competitor Pricing → Alerts** for any threshold breach.
+
+### Workflow O — Ask AI / check forecasts
+1. Any page → floating **AI wand** (or Reports → **Ask AI**) → ask e.g. "How many market
+   visits were approved last month?" → read the answer + **Data used** block.
+2. Attach a CSV/XLSX via the paperclip (≤10 MB) and ask questions about it.
+3. Dashboard → **Predictive insights** → check the next-period forecast and confidence badge.
+4. Build a form → Builder → AI assistant → generate/modify → **preview → confirm → apply**.
+
+### Workflow P — Self-serve help
+1. Sidebar → **Help Center** → browse categories or search (`↑`/`↓`/`Enter`).
+2. Sidebar → **Take a Tour** → Start/Replay any tour your role may take.
+3. Use the per-page **Show me how** triggers; completion badges appear in `/tours`.
 
 ---
 
-## 21. Validation, errors & toasts
+## 24. Validation, errors & toasts
 
 ### Error style
 - API returns a standard error envelope via the Express error handler:
   `{ error: { message, code?, details? } }` with proper HTTP status
   (`400 Bad Request`, `401 Unauthorized`, `403 Forbidden`, `404 Not Found`,
-  `409 Conflict`, `422 Validation`, `429 Too Many Requests`).
+  `409 Conflict`, `413 Payload Too Large`, `422 Validation`, `429 Too Many Requests`,
+  `503 Service Unavailable`).
 - Copycat `ApiError` in the frontend surfaces `message` (or "Request failed"), and
   pages/actions show it in a toast or inline alert.
 
@@ -962,17 +1432,31 @@ Route: `/admin`. **Administrator only** (second-level `RequireRole`). Multiple a
 | `FORBIDDEN`        | 403  | Report access denied / cross-report not yours |
 | `INVALID_STATUS`   | 400  | Anomaly flag status outside enum       |
 | Rate limit         | 429  | >20 submissions/form/IP/hour           |
+| `AI_PROVIDER_UNAVAILABLE` | 503 | No AI provider configured/reachable |
+| AI rate limit      | 429  | >30 AI requests/min/user (10/min/IP anonymous) |
+| `UNSUPPORTED_FILE` | 422  | AI attachment type not in allow-list   |
+| `FILE_TOO_LARGE`   | 413  | AI attachment > 10 MB                  |
+| `ATTACHMENT_NOT_FOUND` | 404 | Expired/missing chat attachment (7-day TTL) |
+| `INVALID_PROVIDER` | 400  | AI renewal provider ≠ gemini/groq      |
+| Key-probe errors (`INVALID_CREDENTIALS`, `RATE_LIMITED`, `TIMEOUT`, `NETWORK_ERROR`, `MODEL_UNAVAILABLE`) | 400 | AI renewal Test/Save |
+| `UPLOAD_ERROR`     | 400  | Corporate-marketing import: not `.xlsx` (20 MB cap) |
+| Role check         | 403  | `Role 'X' cannot perform this action` (any `can()`-guarded action) |
 
 ### Toast examples (implementation)
 - `Welcome, <name>` (login), `Draft report created` (visit),
   `Role updated for <name>` / `Region assigned` (admin),
   `Mapping saved`, `Config saved`, `Schedule added` (admin),
   `Role update failed` / `Save failed` / `Remove failed` (error toasts on failures).
+- Corporate marketing: `Task MAR-MK-001-01 created/saved/verified/rejected/deleted`,
+  `EVT-007 created/saved/deleted`, `Tasks exported as CSV`, `Imported: N parents, N tasks, N events`.
+- Competitors: `Competitor product created. Gap: 12.34%.`, `Gap alert created.`,
+  `Linked N row(s)` / `Unlinked N row(s)`.
+- Opportunities: `X fetched, N new, D duplicate, F failed`, `relevance scores recalculating in the background`.
 - Consent save shows a **toast + inline success alert** inside the consent card.
 
 ---
 
-## 22. Data reference
+## 25. Data reference
 
 ### Form field types (NexForm, 30 types)
 
@@ -993,7 +1477,7 @@ Route: `/admin`. **Administrator only** (second-level `RequireRole`). Multiple a
 - Access modes: `Public`, `Domain`, `Invite`, `Group`, `Password`.
 
 ### Notification channels & statuses
-- Channels: `Email` (sent); `SMS`, `WhatsApp`, `Push`, `In-App` listed but not sent.
+- Channels: `Email` only (the sole value the API accepts; legacy seed rows may show other icons).
 - Statuses: `Pending`, `Sent`, `Retried`, `Failed`; attempts recorded.
 
 ### Anomaly types
@@ -1009,9 +1493,23 @@ Flags never delete/reject unless the form's `AutoRejectAnomalies` is enabled.
 - Seeded KPI definitions (7): WK_MI_REPORT, MO_MI_REPORT, COMPETITOR_PRICE, MARKET_VISIT, INTERVIEW, WEEKLY_SALES, FORM_RESPONSE, MULTIMEDIA.
 - Sample sales (15 rows, Q1–Q3 2026) power the KPI/report views.
 
+### Opportunities reference data
+- **Opportunity types**: `TENDER` (default), `RFQ`, `BUYER_LEAD`, `TRADE_INTELLIGENCE`,
+  `MARKET_SIGNAL` — assigned by keyword rules (source type-hint wins), gap-filled by AI
+  enrichment only when rules are inconclusive.
+- **Product-group taxonomy** (seeded): `COFFEE` (KCC), `BEEF_MEAT`, `PENS_STATIONERY` (BPN),
+  `PLATES_TABLEWARE` (BPL), `PAINTS` — matched from `ProductGroup.Keywords`.
+- **Relevance buckets**: High 75–100, Medium 50–74, Low 25–49, None 0–24, Unscored;
+  "High Relevance" KPI uses the threshold `TENDERS_HIGH_RELEVANCE_THRESHOLD` (70).
+- **Seeded sources**: e-GP Ethiopia (public sourcing API), 2merkato Tenders — free section,
+  2merkato Tenders — full listing, TenderInfo.org Ethiopia, TenderMetro Ethiopia
+  (inactive until `TENDERMETRO_API_KEY`). Candidate/not-integrated providers are listed in
+  `Docs/Dev-Docs/Opportunity_Intelligence_Source_Registry.md`.
+- **Pursuit statuses**: `New`, `Reviewing`, `Interested`, `Applied`, `Won`, `Lost`, `Archived`.
+
 ---
 
-## 23. End-to-end demo scenario
+## 26. End-to-end demo scenario
 
 > Rehearse with three personas: **demo-admin** (admin), **demo-manager**
 > (tsegaye.n), **demo-field** (field1). All passwords `Password123!`.
@@ -1032,7 +1530,7 @@ Flags never delete/reject unless the form's `AutoRejectAnomalies` is enabled.
 11. **Review** — demo-manager → Responses tab → open response → edit within window
     (revision created) → anomalies list → resolve. Report tab → filter dates → chart →
     create share link → open `/share/<token>` incognito (read-only, no login).
-12. **Reports** — demo-manager → Reports → AI Insights & Sales with a region filter; try all 13 sub-tabs.
+12. **Reports** — demo-manager → Reports → AI Insights & Sales with a region filter; try all 14 sub-tabs (incl. **Ask AI**).
 13. **Excel export** — demo-manager → Reports → any tab → export to Excel.
 14. **Officer performance** — demo-field → My Performance → view score, plans, results, activity log.
 15. **Admin** — demo-admin → change a user's role, add a role mapping, add a
@@ -1040,39 +1538,70 @@ Flags never delete/reject unless the form's `AutoRejectAnomalies` is enabled.
 16. **Admin: master data** — demo-admin → manage Business Groups, Customers, Products (with per-type pricing), Product Catalogue (upload photo), Regions & Outlets.
 17. **Admin: KPI** — demo-admin → Planning & Performance → create KPI definitions, assign plans, view officer ranking.
 18. **Sync** — trigger `/sync`, check `/sync/logs`.
-19. **Dashboard revisit** — confirm updated KPIs (sales total, active gaps, visits).
+19. **Opportunities** — demo-manager → Tenders → **Collect Now** on a source → open a
+    high-relevance item → **"Why?"** → **Save** with status `Reviewing`; try the RFQs,
+    Export and Saved views; check a `TENDER_NEW_MATCH` notification after a collection.
+20. **Opportunities import** — demo-manager → Import data → download template → fill it →
+    run the 5-step wizard → read the Summary cards.
+21. **AI** — demo-manager → Reports → **Ask AI** ("Which opportunities close in the next
+    14 days?") → note the Data used block; Dashboard → **Predictive insights** → check a
+    confidence badge; optionally attach a CSV to the chat.
+22. **Admin: competitors** — demo-admin → Competitors → add a competitor product linked to
+    an own product → observe the gap toast/alert → bulk-link rows.
+23. **Admin: corporate marketing** — demo-admin → Corporate marketing plan → (optional)
+    Import Workbook → verify/reject tasks → export CSV.
+24. **Support** — any persona → **Help Center** (search a guide) → **Take a Tour**
+    (start + complete one) → note the Completed badge.
+25. **Dashboard revisit** — confirm updated KPIs (sales total, active gaps, visits,
+    predictive cards).
 
 ---
 
-## 24. Quick reference
+## 27. Quick reference
 
 ### Frontend routes
 | Route                     | Purpose                                      |
 | ------------------------- | -------------------------------------------- |
 | `/`                       | Landing page (public)                        |
 | `/login`                  | Sign in                                      |
-| `/dashboard`              | KPIs + AI insights + activity                |
+| `/dashboard`              | KPIs + predictive insights + AI insights + activity |
 | `/notifications`          | My delivery history (unread/all tabs)        |
 | `/visits`                 | Market visits (CRUD + review/approve/reject) |
 | `/interviews`             | Interviews (CRUD + review/approve/reject)    |
 | `/multimedia`             | Photos & videos (upload + validate)          |
 | `/forms`                  | Forms list + open forms                      |
 | `/forms/[id]`             | Form workspace (Builder/Settings/Responses/Report) |
-| `/forms/[id]/respond`     | Respondent entry point                       |
+| `/forms/[id]/respond`     | Signed-in respondent entry point (draft resume) |
+| `/forms/[id]/public`      | Anonymous public form fill (Published + Public) |
 | `/share/[token]`          | Public read-only share                       |
 | `/pricing`                | Competitor pricing + alerts + compare + thresholds |
-| `/weekly-sales`           | Weekly sales entries                         |
+| `/weekly-sales`           | Weekly sales entries (view/edit/delete)      |
 | `/officer/performance`    | Self-service officer performance dashboard   |
-| `/reports`                | 13 report sub-tabs + Power BI + Excel export |
-| `/profile`                | User profile (photo, password)               |
+| `/reports`                | 14 report sub-tabs (incl. Ask AI) + Power BI + Excel export |
+| `/profile`                | User profile (photo, name/email, password)   |
+| `/tenders`                | Opportunities explorer + dashboard           |
+| `/tenders/buyer-leads` `/tenders/rfqs` `/tenders/export` `/tenders/trade` | Opportunity type presets |
+| `/tenders/saved` `/tenders/my-opportunities` | Saved opportunities (identical views) |
+| `/tenders/[id]`           | Opportunity detail (score, AI enrich, track) |
+| `/tenders/assistant`      | AI Assistant for opportunity data            |
+| `/tenders/sources`        | Data source management (Admin/Manager)       |
+| `/tenders/interest-profiles` | Interest profile scoring targets (Admin/Manager) |
+| `/tenders/import`         | 5-step Excel/CSV import wizard (Admin/Manager) |
+| `/help`, `/help/[slug]`   | Help Center (52 guides + 51 FAQs) — sign-in  |
+| `/tours`                  | Tour catalog (start/replay, completion badges) |
+| `/features`               | Public capability showcase                   |
+| `/team`                   | Public team/contributors page                |
 | `/admin`                  | Admin Centre (5 tabs)                        |
 | `/admin/kpi`              | Planning & Performance (5 tabs)              |
+| `/admin/corporate-marketing` | Corporate Marketing Plan (4 tabs, import/export) |
 | `/admin/business-groups`  | Business group management                    |
 | `/admin/customers`        | Customer management + type manager           |
 | `/admin/products`         | Product management + per-type pricing        |
+| `/admin/competitors`      | Competitor product master + bulk linking     |
 | `/admin/product-catalogue`| Visual product catalogue with photos         |
 | `/admin/regions`          | Region & outlet management                   |
-| `/admin/relationship-configuration` | Parent-child entity relationships |
+| `/admin/ai-renewal`       | AI provider keys + rotation reminder         |
+| `/admin/relationship-configuration` | Parent-child entity relationships (URL-only) |
 
 ### API surface (`/api/v1`)
 | Module            | Endpoints |
@@ -1082,27 +1611,41 @@ Flags never delete/reject unless the form's `AutoRejectAnomalies` is enabled.
 | Interviews        | `GET/POST /interviews`, `GET/PUT /interviews/:id`, `POST /interviews/:id/submit`, `POST /interviews/:id/review`, `POST /interviews/:id/approve`, `POST /interviews/:id/reject` |
 | Multimedia        | `GET/POST /multimedia`, `GET/PUT/DELETE /multimedia/:id`, `POST /multimedia/:id/validate`, `POST /multimedia/:id/reject` |
 | Forms (NexForm)   | `GET /forms`, `POST /forms`, `GET/PUT/DELETE /forms/:id`, `POST /forms/:id/publish`, `POST /forms/:id/archive`, `POST /forms/:id/clone`, `GET /forms/accessible`, `POST/GET /forms/:id/versions`, `GET/PUT /forms/:id/meta`, `GET/PUT /forms/:id/access`, `POST /forms/:id/invites` (+ bulk/revoke), consent get/bump + history, branding get/update, dashboard get/save, `GET/POST /forms/:id/responses`, `GET /forms/:id/responses/detail`, `PUT /forms/:id/responses/:rid`, revisions, erasure, anomalies list/update/recompute, report, shares create/list/revoke, report access grant/revoke, cross-reports CRUD + report, drafts save + mine + resume |
-| Weekly sales      | `GET/POST /weekly-sales`, `GET/DELETE /weekly-sales/:id` |
+| Weekly sales      | `GET/POST /weekly-sales`, `GET/PUT/DELETE /weekly-sales/:id` |
 | Competitor pricing| `GET/POST /competitor-pricing/prices`, `GET/PUT/DELETE /competitor-pricing/prices/:id`, `GET /competitor-pricing/compare`, `GET /competitor-pricing/alerts`, `PUT/DELETE …/alerts/:id/resolve\|dismiss`, `GET/PUT /competitor-pricing/thresholds` |
-| Competitors       | `GET/POST /competitors`, `GET/PUT/DELETE /competitors/:id` |
+| Competitors       | `GET/POST /competitors`, `GET/PUT/DELETE /competitors/:id`, `GET /competitors/products`, `GET /competitors/products/categories`, `GET/POST /competitors/products`, `GET/PUT/DELETE /competitors/products/:id`, `PUT /competitors/products/link` (bulk) |
+| Opportunities     | `GET /tenders/dashboard`, `/countries`, `/sectors`, `/product-groups`, `/business-groups`, `/` (list), `/saved`, `/sources`, `/interest-profiles`, `/imports`, `/imports/template`, `/:id`; `POST /tenders` , `/:id/save`, `/:id/verify`, `/:id/ai-enrich`, `/:id/relevance-explanation`, `/sources`, `/sources/test`, `/sources/:id/test`, `/sources/:id/collect`, `/sources/collect-all`, `/interest-profiles`, `/imports/parse`, `/imports/commit`; `PUT /:id/save`, `/sources/:id`, `/interest-profiles/:id`; `DELETE /:id/save`, `/sources/:id`, `/interest-profiles/:id`, `/imports/:token` |
+| AI                 | `GET /ai/providers`, `POST /ai/assistant`, `/ai/writing`, `/ai/analysis`, `/ai/ask`, `/ai/attachments`, `/ai/predictive`, `GET /ai/predictive/summary`, `POST /ai/public/writing`, `POST /ai/public/ask`; renewal: `GET /ai/renewal/providers/status`, `POST /ai/renewal/validate`, `POST /ai/renewal/apply`, `GET/PUT /ai/renewal/rotation` |
 | Officer           | `GET /officer/performance`, `GET /officer/summary`, `GET /officer/trends`, `GET /officer/results`, `GET /officer/plans`, `GET /officer/activity-log` |
 | Sync              | `POST /sync`, `GET /sync/logs` |
 | Notifications     | `GET /notifications/mine`, `GET /notifications`, `PUT /notifications/:id/read`, `PUT /notifications/read-all` |
 | Reports           | `GET /reports/sales`, `/price-comparison`, `/market-visits`, `/forms/answers`, `/product-availability`, `/ai-insights`, `/interviews`, `/weekly-sales`, `/customers`, `/products`, `/competitor-intelligence`, `/kpi-results`, `/powerbi/views`, `/powerbi/embed/:id`, `/reports/export/:type` |
 | Admin             | `GET/PUT/DELETE /admin/users/…`, `/admin/role-mapping`, `/admin/notification-config`, `/admin/report-schedules`, `GET /admin/audit`, `/admin/export-audit/:format`, `/admin/business-groups`, `/admin/customers`, `/admin/customer-types`, `/admin/products`, `/admin/product-prices`, `/admin/regions`, `/admin/outlets`, `/admin/lookups` |
+| Corporate marketing | `GET/POST /admin/corp-marketing/tasks`, `GET/PUT/DELETE /admin/corp-marketing/tasks/:id`, `GET /admin/corp-marketing/roles`, `/parents`, `/summary`, `POST /admin/corp-marketing/verify`, `GET/POST /admin/corp-marketing/events`, `GET/PUT/DELETE /admin/corp-marketing/events/:id`, `GET /admin/corp-marketing/tasks/export`, `GET /admin/corp-marketing/events/export`, `POST /admin/corp-marketing/import` |
 | KPI               | `GET/POST /admin/kpi/definitions`, `GET/PUT/DELETE /admin/kpi/definitions/:id`, `GET/POST /admin/kpi/results`, `GET/PUT/DELETE /admin/kpi/results/:id`, `GET /admin/kpi/officer/:id`, `POST /admin/kpi/bulk-results` |
 | Planning          | `GET/POST /admin/plans`, `GET/PUT/DELETE /admin/plans/:id`, `POST /admin/plans/:id/submit`, `POST /admin/plans/:id/approve`, `POST /admin/plans/:id/reject`, `GET/POST /admin/plans/:id/activities`, `GET/PUT/DELETE /admin/plans/:id/activities/:aid` |
 | Relationships     | `GET/POST /admin/relationships`, `GET/PUT/DELETE /admin/relationships/:id`, `GET/POST /admin/relationships/:id/items`, `GET/PUT/DELETE /admin/relationships/:id/items/:iid`, `GET /admin/relationships/resolve` |
 | Reference         | `GET /reference/roles`, `/business-groups`, `/regions`, `/products`, `/customers`, `/outlets`, `/customer-types`, `/lookups`, `/product-prices` |
 | Other             | `GET /health` |
 
-### Cron jobs
-`purgeAuditLog` (365 days), `purgeDrafts` (abandoned → 7 days), `processErasureRequests`
-(30 days), `recomputeAnomalies` (daily), `syncD365FO` (daily), `checkGapAlerts` (daily).
+### Cron jobs (`backend/src/cron/jobs.ts`)
+| Schedule (UTC) | Job | Notes |
+| -------------- | --- | ----- |
+| `D365FO_SYNC_CRON` (daily default) | `syncD365FO` | Only when `D365FO sync enabled` |
+| `0 2 * * *` | AI key rotation check | Marks `ai.rotation.due=true` when due (audit only, no email) |
+| `0 3 * * *` | `processErasureRequests` | GDPR erasure of Pending requests >30 days |
+| `0 4 * * *` | `purgeAuditLog` (365 days) + `purgeDrafts` (7 days) | Retention |
+| `15 4 * * *` | Predictive refresh + insight purge | Recomputes 11 modules; `prediction.enabled=0` disables |
+| `30 4 * * *` | `recomputeAnomalies` | Nightly re-scan of published forms |
+| `45 4 * * *` | AI attachment purge | Deletes `ai-*` uploads older than 7 days |
+| `0 7 * * *` | Price-gap health signal | Logs active `PriceGapAlert` count |
+| `0 9 * * *` | Form expiry reminders (`FORM_REMINDER`) | Published forms expiring ≤24 h |
+| `0 9 * * *` (`TENDERS_REMINDER_CRON`) | Tender deadline reminders | Saved opportunities ≤ `TENDERS_REMINDER_LEAD_DAYS` (7) |
+| `TENDERS_COLLECTION_CRON` (default `0 */6 * * *`) | Tender source collection | **Off unless** `TENDERS_COLLECTION_ENABLED=true` |
 
 ---
 
-## 25. Appendix: capability-by-feature checklist
+## 28. Appendix: capability-by-feature checklist
 
 | Capability                         | Status |
 | ---------------------------------- | ------ |
@@ -1146,6 +1689,28 @@ Flags never delete/reject unless the form's `AutoRejectAnomalies` is enabled.
 | Dark mode                          | ✅     |
 | Profile photo upload + crop        | ✅     |
 | Password change                    | ✅     |
+| Public form fill (`/forms/:id/public`) | ✅  |
+| Shops-visited capture + reporting  | ✅     |
+| Weekly sales view/edit + product attributes | ✅ |
+| Opportunities: source collection + dashboard | ✅ (scheduled collection off by default; TenderMetro inactive until API key set) |
+| Opportunity relevance scoring & interest profiles | ✅ |
+| Opportunity import wizard (Excel/CSV) | ✅  |
+| Opportunity tracking (save + 7 statuses) | ✅  |
+| AI enrichment for opportunities    | ✅ (provider-dependent; per-source opt-in) |
+| AI form assistant (preview→apply)  | ✅     |
+| AI writing assistant + response analysis | ✅ |
+| Ask AI (27 tools) + global launcher + attachments | ✅ |
+| Public landing AI chat             | ✅     |
+| Predictive insights (11 modules)   | ✅ (deterministic engine, no LLM) |
+| Reports "Ask AI" tab               | ✅     |
+| AI Renewal: status + validate/apply + rotation | ✅ |
+| AI rotation due notification/email | ⛔ (badge + audit log only) |
+| Corporate marketing plan (tabs, CRUD, import, export, pagination) | ✅ |
+| Competitor product master + bulk linking | ✅ |
+| Competitor entity edit/delete UI   | ⛔ (API exists; no screen) |
+| Help Center (52 guides / 51 FAQs)  | ✅     |
+| Guided tours (33 tours / 188 steps) | ✅    |
+| Public `/features` & `/team` pages | ✅     |
 
 ---
 

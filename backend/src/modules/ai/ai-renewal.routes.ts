@@ -94,75 +94,45 @@ router.post(
       throw new AppError(400, 'INVALID_PROVIDER', 'Provider not available');
     }
 
-    // Temporarily override the key for validation
-    const originalKey = provider === 'gemini'
-      ? process.env.GEMINI_API_KEY
-      : process.env.GROQ_API_KEY;
+    // Probe the submitted key directly — never touches the configured key.
+    const status = await providerInstance.status({ probeKey: apiKey });
 
-    try {
-      // Set the test key in process.env so the provider's status() picks it up
-      if (provider === 'gemini') {
-        process.env.GEMINI_API_KEY = apiKey;
-      } else {
-        process.env.GROQ_API_KEY = apiKey;
-      }
-
-      const status = await providerInstance.status();
-
-      // Restore original key
-      if (provider === 'gemini') {
-        process.env.GEMINI_API_KEY = originalKey ?? '';
-      } else {
-        process.env.GROQ_API_KEY = originalKey ?? '';
-      }
-
-      if (!status.configured) {
-        return res.json({ valid: false, error: 'Key not configured', detail: status.detail });
-      }
-
-      if (!status.available) {
-        // Distinguish error types
-        const detail = status.detail || 'Provider unavailable';
-        let errorCode = 'PROVIDER_UNAVAILABLE';
-        let userMessage = detail;
-
-        if (detail.toLowerCase().includes('rate limit') || detail.includes('429')) {
-          errorCode = 'RATE_LIMITED';
-          userMessage = 'Rate limit reached — try again shortly. The key may be valid but quota is exhausted.';
-        } else if (detail.toLowerCase().includes('key was rejected') || detail.toLowerCase().includes('401') || detail.toLowerCase().includes('403')) {
-          errorCode = 'INVALID_CREDENTIALS';
-          userMessage = `The ${provider === 'gemini' ? 'Gemini' : 'Groq'} API key was rejected. Please verify the key.`;
-        } else if (detail.toLowerCase().includes('model') && detail.toLowerCase().includes('not available')) {
-          errorCode = 'MODEL_UNAVAILABLE';
-          userMessage = detail;
-        } else if (detail.toLowerCase().includes('timeout') || detail.toLowerCase().includes('did not respond')) {
-          errorCode = 'TIMEOUT';
-          userMessage = `Cannot reach ${provider === 'gemini' ? 'Gemini' : 'Groq'} — provider timeout.`;
-        } else if (detail.toLowerCase().includes('cannot reach') || detail.toLowerCase().includes('network')) {
-          errorCode = 'NETWORK_ERROR';
-          userMessage = `Cannot reach ${provider === 'gemini' ? 'Gemini' : 'Groq'} — network error.`;
-        }
-
-        return res.json({
-          valid: false,
-          error: userMessage,
-          errorCode,
-          detail: status.detail,
-        });
-      }
-
-      res.json({ valid: true, model: status.model, detail: 'Connection successful' });
-    } catch (err) {
-      // Restore original key on error
-      if (provider === 'gemini') {
-        process.env.GEMINI_API_KEY = originalKey ?? '';
-      } else {
-        process.env.GROQ_API_KEY = originalKey ?? '';
-      }
-
-      logger.warn('ai.renewal.validate_error', { provider, error: (err as Error).message });
-      throw new AppError(500, 'VALIDATION_ERROR', 'Failed to validate key');
+    if (!status.configured) {
+      return res.json({ valid: false, error: 'Key not configured', detail: status.detail });
     }
+
+    if (!status.available) {
+      // Distinguish error types
+      const detail = status.detail || 'Provider unavailable';
+      let errorCode = 'PROVIDER_UNAVAILABLE';
+      let userMessage = detail;
+
+      if (detail.toLowerCase().includes('rate limit') || detail.includes('429')) {
+        errorCode = 'RATE_LIMITED';
+        userMessage = 'Rate limit reached — try again shortly. The key may be valid but quota is exhausted.';
+      } else if (detail.toLowerCase().includes('key was rejected') || detail.toLowerCase().includes('401') || detail.toLowerCase().includes('403')) {
+        errorCode = 'INVALID_CREDENTIALS';
+        userMessage = `The ${provider === 'gemini' ? 'Gemini' : 'Groq'} API key was rejected. Please verify the key.`;
+      } else if (detail.toLowerCase().includes('model') && detail.toLowerCase().includes('not available')) {
+        errorCode = 'MODEL_UNAVAILABLE';
+        userMessage = detail;
+      } else if (detail.toLowerCase().includes('timeout') || detail.toLowerCase().includes('did not respond')) {
+        errorCode = 'TIMEOUT';
+        userMessage = `Cannot reach ${provider === 'gemini' ? 'Gemini' : 'Groq'} — provider timeout.`;
+      } else if (detail.toLowerCase().includes('cannot reach') || detail.toLowerCase().includes('network')) {
+        errorCode = 'NETWORK_ERROR';
+        userMessage = `Cannot reach ${provider === 'gemini' ? 'Gemini' : 'Groq'} — network error.`;
+      }
+
+      return res.json({
+        valid: false,
+        error: userMessage,
+        errorCode,
+        detail: status.detail,
+      });
+    }
+
+    res.json({ valid: true, model: status.model, detail: 'Connection successful' });
   })
 );
 
@@ -176,92 +146,65 @@ router.post(
     const userId = req.user!.userId;
 
     await withProviderLock(provider, async () => {
-      // Validate first
+      // Validate first — probe the submitted key without touching the live one.
       const providerInstance = PROVIDERS[provider];
       if (!providerInstance) {
         throw new AppError(400, 'INVALID_PROVIDER', 'Provider not available');
       }
 
-      const originalKey = provider === 'gemini'
-        ? process.env.GEMINI_API_KEY
-        : process.env.GROQ_API_KEY;
+      const status = await providerInstance.status({ probeKey: apiKey });
 
-      try {
-        // Set test key for validation
-        if (provider === 'gemini') {
-          process.env.GEMINI_API_KEY = apiKey;
-        } else {
-          process.env.GROQ_API_KEY = apiKey;
+      if (!status.available) {
+        const detail = status.detail || 'Provider unavailable';
+        let errorCode = 'PROVIDER_UNAVAILABLE';
+
+        if (detail.toLowerCase().includes('rate limit') || detail.includes('429')) {
+          errorCode = 'RATE_LIMITED';
+        } else if (detail.toLowerCase().includes('key was rejected') || detail.toLowerCase().includes('401') || detail.toLowerCase().includes('403')) {
+          errorCode = 'INVALID_CREDENTIALS';
+        } else if (detail.toLowerCase().includes('timeout') || detail.toLowerCase().includes('did not respond')) {
+          errorCode = 'TIMEOUT';
+        } else if (detail.toLowerCase().includes('cannot reach') || detail.toLowerCase().includes('network')) {
+          errorCode = 'NETWORK_ERROR';
         }
 
-        const status = await providerInstance.status();
-
-        // Restore original key temporarily
-        if (provider === 'gemini') {
-          process.env.GEMINI_API_KEY = originalKey ?? '';
-        } else {
-          process.env.GROQ_API_KEY = originalKey ?? '';
-        }
-
-        if (!status.available) {
-          const detail = status.detail || 'Provider unavailable';
-          let errorCode = 'PROVIDER_UNAVAILABLE';
-
-          if (detail.toLowerCase().includes('rate limit') || detail.includes('429')) {
-            errorCode = 'RATE_LIMITED';
-          } else if (detail.toLowerCase().includes('key was rejected') || detail.toLowerCase().includes('401') || detail.toLowerCase().includes('403')) {
-            errorCode = 'INVALID_CREDENTIALS';
-          } else if (detail.toLowerCase().includes('timeout') || detail.toLowerCase().includes('did not respond')) {
-            errorCode = 'TIMEOUT';
-          } else if (detail.toLowerCase().includes('cannot reach') || detail.toLowerCase().includes('network')) {
-            errorCode = 'NETWORK_ERROR';
-          }
-
-          throw new AppError(400, errorCode, detail);
-        }
-
-        // Validation passed - persist the key
-        const configStore = getConfigStore();
-        const envKey = provider === 'gemini' ? AI_CONFIG_KEYS.GEMINI_API_KEY : AI_CONFIG_KEYS.GROQ_API_KEY;
-
-        await configStore.set(envKey, apiKey);
-
-        // Update runtime config so subsequent requests use the new key
-        if (provider === 'gemini') {
-          updateAiConfig({ geminiApiKey: apiKey });
-        } else {
-          updateAiConfig({ groqApiKey: apiKey });
-        }
-
-        // Audit log (no key material)
-        await logAudit(req, {
-          userId,
-          action: 'AI_KEY_RENEWED',
-          entity: 'AiProvider',
-          detail: { provider, rotated: false },
-        });
-
-        logger.info('ai.renewal.applied', { provider, userId });
-
-        // Verify the new key works
-        const newStatus = await providerInstance.status();
-
-        res.json({
-          success: true,
-          provider,
-          model: newStatus.model,
-          status: newStatus.available ? 'available' : 'configured',
-          message: `${provider === 'gemini' ? 'Gemini' : 'Groq'} API key updated successfully`,
-        });
-      } catch (err) {
-        // Restore original key on error
-        if (provider === 'gemini') {
-          process.env.GEMINI_API_KEY = originalKey ?? '';
-        } else {
-          process.env.GROQ_API_KEY = originalKey ?? '';
-        }
-        throw err;
+        // Working key is never overwritten when validation fails.
+        throw new AppError(400, errorCode, detail);
       }
+
+      // Validation passed - persist the key
+      const configStore = getConfigStore();
+      const envKey = provider === 'gemini' ? AI_CONFIG_KEYS.GEMINI_API_KEY : AI_CONFIG_KEYS.GROQ_API_KEY;
+
+      await configStore.set(envKey, apiKey);
+
+      // Update runtime config so subsequent requests use the new key
+      if (provider === 'gemini') {
+        updateAiConfig({ geminiApiKey: apiKey });
+      } else {
+        updateAiConfig({ groqApiKey: apiKey });
+      }
+
+      // Audit log (no key material)
+      await logAudit(req, {
+        userId,
+        action: 'AI_KEY_RENEWED',
+        entity: 'AiProvider',
+        detail: { provider, rotated: false },
+      });
+
+      logger.info('ai.renewal.applied', { provider, userId });
+
+      // Verify the new key works
+      const newStatus = await providerInstance.status();
+
+      res.json({
+        success: true,
+        provider,
+        model: newStatus.model,
+        status: newStatus.available ? 'available' : 'configured',
+        message: `${provider === 'gemini' ? 'Gemini' : 'Groq'} API key updated successfully`,
+      });
     });
   })
 );

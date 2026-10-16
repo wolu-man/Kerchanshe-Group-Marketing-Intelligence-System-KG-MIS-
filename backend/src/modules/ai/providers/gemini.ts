@@ -100,8 +100,8 @@ function mapError(status: number, body: string): ProviderError {
 export class GeminiProvider implements AIProvider {
   readonly id = 'gemini' as const;
 
-  async status(): Promise<ProviderStatus> {
-    const key = env.ai.gemini.apiKey;
+  async status(options?: { probeKey?: string }): Promise<ProviderStatus> {
+    const key = options?.probeKey ?? env.ai.gemini.apiKey;
     const model = env.ai.gemini.model || DEFAULT_GEMINI_MODEL;
     if (!key) {
       return {

@@ -78,7 +78,9 @@ Content-Type: application/json
 }
 ```
 
-Tests a key against the provider without saving. Returns detailed error codes:
+Tests a key against the provider without saving. The submitted key is probed
+directly via `status({ probeKey })` — the configured key is never touched, even
+temporarily. Returns detailed error codes:
 
 | Error Code | Meaning |
 |------------|---------|

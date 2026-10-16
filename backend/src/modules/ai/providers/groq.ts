@@ -94,8 +94,8 @@ function mapError(status: number, body: string): ProviderError {
 export class GroqProvider implements AIProvider {
   readonly id = 'groq' as const;
 
-  async status(): Promise<ProviderStatus> {
-    const key = env.ai.groq.apiKey;
+  async status(options?: { probeKey?: string }): Promise<ProviderStatus> {
+    const key = options?.probeKey ?? env.ai.groq.apiKey;
     const model = env.ai.groq.model || DEFAULT_GROQ_MODEL;
     if (!key) {
       return {

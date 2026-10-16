@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { Guard, RequireRole } from '@/components/Guard';
-import { Button, Card, Loading, Badge, Modal, Field, Tabs, Icon, Input } from '@/components/ui';
+import { Button, Card, Loading, Badge, Field, Tabs, Icon, Input } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 import { toast } from '@/components/Toast';
-import type { AiProviderStatus, AiProvidersResponse } from '@/lib/ai-types';
+import type { AiProviderStatus } from '@/lib/ai-types';
 
 interface ProviderStatusCardProps {
   provider: AiProviderStatus;
@@ -121,6 +121,7 @@ function AiRenewalInner() {
   const [showGroqKey, setShowGroqKey] = useState(false);
   const [testingProvider, setTestingProvider] = useState<'gemini' | 'groq' | null>(null);
   const [savingProvider, setSavingProvider] = useState<'gemini' | 'groq' | null>(null);
+  const [tab, setTab] = useState<'providers' | 'rotation'>('providers');
   const [rotation, setRotation] = useState<{
     enabled: boolean;
     intervalDays: number | null;
@@ -134,7 +135,6 @@ function AiRenewalInner() {
     provider: null,
     due: false,
   });
-  const [rotationLoading, setRotationLoading] = useState(false);
   const [rotationSaving, setRotationSaving] = useState(false);
 
   // Load provider statuses on mount
@@ -145,7 +145,7 @@ function AiRenewalInner() {
 
   async function loadProviders() {
     try {
-      const res = await api<AiProvidersResponse>('/ai/providers/status');
+      const res = await api<{ providers: AiProviderStatus[] }>('/ai/renewal/providers/status');
       setProviders(res.providers);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Failed to load provider status');
@@ -166,6 +166,7 @@ function AiRenewalInner() {
       setRotation(res);
     } catch (err) {
       console.error('Failed to load rotation config:', err);
+      toast.error(err instanceof ApiError ? err.message : 'Failed to load rotation settings');
     }
   }
 
@@ -241,15 +242,16 @@ function AiRenewalInner() {
   async function saveRotation() {
     setRotationSaving(true);
     try {
-      const nextRun = rotation.enabled && rotation.intervalDays
-        ? new Date(Date.now() + rotation.intervalDays * 24 * 60 * 60 * 1000).toISOString()
+      const intervalDays = rotation.intervalDays ?? 90;
+      const nextRun = rotation.enabled
+        ? new Date(Date.now() + intervalDays * 24 * 60 * 60 * 1000).toISOString()
         : '';
 
       await api('/ai/renewal/rotation', {
         method: 'PUT',
         body: {
           enabled: rotation.enabled,
-          intervalDays: rotation.intervalDays,
+          intervalDays,
           provider: rotation.provider || undefined,
           nextRun: nextRun || undefined,
         },
@@ -285,10 +287,11 @@ function AiRenewalInner() {
           { id: 'providers', label: 'Providers' },
           { id: 'rotation', label: 'Rotation' },
         ]}
-        active="providers"
-        onChange={() => {}}
+        active={tab}
+        onChange={(id) => setTab(id as 'providers' | 'rotation')}
       />
 
+      {tab === 'providers' && (
       <div style={{ marginTop: 24, display: 'grid', gap: 24, gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))' }}>
         {geminiProvider && (
           <ProviderStatusCard
@@ -321,8 +324,10 @@ function AiRenewalInner() {
           />
         )}
       </div>
+      )}
 
       {/* Rotation Settings */}
+      {tab === 'rotation' && (
       <Card title="Scheduled Key Rotation" style={{ marginTop: 24 }}>
         <div style={{ display: 'grid', gap: 16 }}>
           <Field label="Enable Rotation Reminders" required>
@@ -344,7 +349,7 @@ function AiRenewalInner() {
                   min={1}
                   max={365}
                   value={rotation.intervalDays ?? ''}
-                  onChange={(e) => setRotation({ ...rotation, intervalDays: parseInt(e.target.value) || 90 })}
+                  onChange={(e) => setRotation({ ...rotation, intervalDays: e.target.value === '' ? null : parseInt(e.target.value, 10) || 90 })}
                 />
                 <div className="hint">How often keys should be rotated. Default: 90 days.</div>
               </Field>
@@ -381,12 +386,13 @@ function AiRenewalInner() {
           )}
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-            <Button onClick={saveRotation} busy={rotationSaving} disabled={!rotation.enabled}>
+            <Button onClick={saveRotation} busy={rotationSaving}>
               <Icon name="floppy-disk" className="mr-1" /> Save Rotation Settings
             </Button>
           </div>
         </div>
       </Card>
+      )}
     </div>
   );
 }

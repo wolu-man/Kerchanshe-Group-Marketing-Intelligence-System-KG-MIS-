@@ -48,8 +48,12 @@ export class ProviderError extends Error {
 
 export interface AIProvider {
   readonly id: ProviderId;
-  /** Never throws — used by the status endpoint. Never exposes secrets. */
-  status(): Promise<ProviderStatus>;
+  /**
+   * Never throws — used by the status endpoint. Never exposes secrets.
+   * `probeKey` validates a candidate key without touching the configured one
+   * (AI Renewal: the submitted key must be what gets probed).
+   */
+  status(options?: { probeKey?: string }): Promise<ProviderStatus>;
   chat(req: ProviderChatRequest): Promise<ProviderChatResult>;
 }
 

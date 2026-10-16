@@ -14,18 +14,6 @@ import { purgeOldAttachments } from '../modules/ai/attachments';
 import { getConfigStore, AI_CONFIG_KEYS } from '../config/config-store';
 import { audit } from '../db/audit';
 
-/** Reads a string SystemConfig value (cron: no user context). */
-async function configStr(key: string, fallback: string): Promise<string> {
-  try {
-    const row = await db.request().input('Key', sql.VarChar(100), key).query(
-      `SELECT ConfigValue FROM dbo.SystemConfig WHERE ConfigKey = @Key`
-    );
-    return row.recordset[0]?.ConfigValue ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 /** Reads an integer SystemConfig value (cron: no user context). */
 async function configInt(key: string, fallback: number): Promise<number> {
   try {
@@ -39,19 +27,20 @@ async function configInt(key: string, fallback: number): Promise<number> {
   }
 }
 
-/** Reads a boolean SystemConfig value (cron: no user context). */
-async function configBool(key: string, fallback: boolean): Promise<boolean> {
-  const val = await configStr(key, String(fallback));
-  return val === 'true';
-}
-
-/** Check if AI key rotation is due and mark it. Runs daily at 02:00 UTC. */
+/** Check if AI key rotation is due and mark it. Runs daily at 02:00 UTC.
+ * Reads via getConfigStore() — the same store the PUT /ai/renewal/rotation
+ * route writes to (.env in dev, SystemConfig in prod), so UI changes are seen. */
 async function checkAiKeyRotation(): Promise<void> {
   try {
-    const enabled = await configBool(AI_CONFIG_KEYS.ROTATION_ENABLED, false);
-    if (!enabled) return;
+    const configStore = getConfigStore();
+    const [enabledVal, nextRunStr, alreadyDueVal, provider] = await Promise.all([
+      configStore.get(AI_CONFIG_KEYS.ROTATION_ENABLED),
+      configStore.get(AI_CONFIG_KEYS.ROTATION_NEXT_RUN),
+      configStore.get(AI_CONFIG_KEYS.ROTATION_DUE),
+      configStore.get(AI_CONFIG_KEYS.ROTATION_PROVIDER),
+    ]);
 
-    const nextRunStr = await configStr(AI_CONFIG_KEYS.ROTATION_NEXT_RUN, '');
+    if (enabledVal !== 'true') return;
     if (!nextRunStr) return;
 
     const nextRun = new Date(nextRunStr);
@@ -61,14 +50,12 @@ async function checkAiKeyRotation(): Promise<void> {
     if (nextRun > now) return; // Not due yet
 
     // Check if already marked due
-    const alreadyDue = await configBool(AI_CONFIG_KEYS.ROTATION_DUE, false);
-    if (alreadyDue) {
+    if (alreadyDueVal === 'true') {
       logger.info('ai.rotation.already_due', { nextRun: nextRunStr });
       return;
     }
 
     // Mark as due - admin needs to provide new key
-    const configStore = getConfigStore();
     await configStore.set(AI_CONFIG_KEYS.ROTATION_DUE, 'true');
 
     // Audit log
@@ -76,7 +63,7 @@ async function checkAiKeyRotation(): Promise<void> {
       userId: null, // System-initiated
       action: 'AI_ROTATION_DUE',
       entity: 'AiProvider',
-      detail: { nextRun: nextRunStr, provider: await configStr(AI_CONFIG_KEYS.ROTATION_PROVIDER, '') },
+      detail: { nextRun: nextRunStr, provider: provider ?? '' },
       ipAddress: null,
     });
 

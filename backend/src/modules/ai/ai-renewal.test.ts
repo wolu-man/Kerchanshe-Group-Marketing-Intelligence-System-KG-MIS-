@@ -33,12 +33,14 @@ async function assertAsync(promise: Promise<boolean>, message: string): Promise<
   }
 }
 
-function describe(name: string, fn: () => Promise<void>): void {
+async function describe(name: string, fn: () => Promise<void>): Promise<void> {
   console.log(`\n${name}:`);
-  fn().catch((err) => {
+  try {
+    await fn();
+  } catch (err) {
     failed++;
     console.error(`  ✗ ${name} setup failed — ${(err as Error).message}`);
-  });
+  }
 }
 
 async function runTests(): Promise<void> {
@@ -172,6 +174,63 @@ async function runTests(): Promise<void> {
       !RENEWABLE_PROVIDERS.includes('invalid'),
       'invalid provider is not renewable'
     );
+  });
+
+  await describe('AIProvider.status({ probeKey })', async () => {
+    const { GeminiProvider } = await import('./providers/gemini');
+    const { GroqProvider } = await import('./providers/groq');
+    const { env } = await import('../../config/env');
+
+    const geminiModel = env.ai.gemini.model || 'gemini-flash-latest';
+    const groqModel = env.ai.groq.model || 'llama-3.3-70b-versatile';
+
+    const originalFetch = globalThis.fetch;
+    let lastUrl = '';
+    let lastInit: RequestInit | undefined;
+
+    const stubFetch = (status: number, bodyJson: unknown): void => {
+      globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+        lastUrl = String(url);
+        lastInit = init;
+        return {
+          ok: status >= 200 && status < 300,
+          status,
+          text: async () => JSON.stringify(bodyJson),
+        } as unknown as Response;
+      }) as typeof fetch;
+    };
+
+    try {
+      stubFetch(200, {
+        models: [{ name: `models/${geminiModel}`, supportedGenerationMethods: ['generateContent'] }],
+      });
+      const ok = await new GeminiProvider().status({ probeKey: 'submitted-gemini-key' });
+      assert(ok.available === true, 'gemini: valid probeKey → available=true');
+      assert(lastUrl.includes('submitted-gemini-key'), 'gemini: submitted key is used in the probe request');
+
+      stubFetch(401, { error: { message: 'API key not valid. Please pass a valid API key.' } });
+      const bad = await new GeminiProvider().status({ probeKey: 'bad-key' });
+      assert(bad.available === false, 'gemini: 401 probeKey → available=false');
+      assert(
+        (bad.detail ?? '').toLowerCase().includes('rejected'),
+        'gemini: 401 probeKey → rejected message'
+      );
+
+      stubFetch(200, { data: [{ id: groqModel }] });
+      const gOk = await new GroqProvider().status({ probeKey: 'submitted-groq-key' });
+      assert(gOk.available === true, 'groq: valid probeKey → available=true');
+      const authHeader = ((lastInit?.headers as Record<string, string> | undefined) ?? {})['Authorization'];
+      assert(
+        authHeader === 'Bearer submitted-groq-key',
+        'groq: submitted key is used in the Authorization header'
+      );
+
+      stubFetch(401, { error: { message: 'Invalid API Key' } });
+      const gBad = await new GroqProvider().status({ probeKey: 'bad-key' });
+      assert(gBad.available === false, 'groq: 401 probeKey → available=false');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   // --- Summary ---

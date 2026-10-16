@@ -58,7 +58,7 @@ app.use('/api/v1', formsModule);
 // every request it receives.
 app.use('/api/v1/ai', aiPublicRouter);
 app.use('/api/v1/ai', aiRouter);
-app.use('/api/v1/ai', aiRenewalRouter);
+app.use('/api/v1/ai/renewal', aiRenewalRouter);
 app.use('/api/v1/competitor-pricing', competitorPricingRouter);
 app.use('/api/v1/sync', syncRouter);
 app.use('/api/v1/admin', adminRouter);
