@@ -72,6 +72,7 @@ export const NAV_SECTIONS: Array<{ title: string; icon: string; items: NavItem[]
       { href: '/admin/competitors', label: 'Competitors', icon: 'chess-knight', roles: ['Administrator', 'Marketing Manager'] },
       { href: '/admin/product-catalogue', label: 'Product catalogue', icon: 'images', roles: ['Administrator'] },
       { href: '/admin/regions', label: 'Regions & outlets', icon: 'map-location-dot', roles: ['Administrator'] },
+      { href: '/admin/ai-renewal', label: 'AI Renewal', icon: 'key', roles: ['Administrator'] },
     ],
   },
   {

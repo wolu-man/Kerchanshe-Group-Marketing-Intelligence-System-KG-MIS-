@@ -36,6 +36,45 @@ function int(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** Internal mutable AI config - updated at runtime via config-store. */
+const aiConfig = {
+  /** Default provider used by the Form Assistant when the client asks for "auto". */
+  provider: (process.env.AI_PROVIDER || 'auto') as 'auto' | 'ollama' | 'gemini' | 'groq',
+  /** Per-request provider timeout (ms). Local models can be slow to warm up. */
+  timeoutMs: int(process.env.AI_TIMEOUT_MS, 60000),
+  ollama: {
+    baseUrl: (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/+$/, ''),
+    /** Empty = auto-discover the first installed non-embedding model. */
+    model: process.env.OLLAMA_MODEL || '',
+  },
+  gemini: {
+    apiKey: process.env.GEMINI_API_KEY || '',
+    /** Empty = provider default (see providers/gemini.ts). */
+    model: process.env.GEMINI_MODEL || '',
+  },
+  groq: {
+    apiKey: process.env.GROQ_API_KEY || '',
+    /** Empty = provider default (see providers/groq.ts). */
+    model: process.env.GROQ_MODEL || '',
+  },
+};
+
+/**
+ * Update the AI configuration at runtime (e.g., after key renewal).
+ * This allows providers to pick up new keys without a restart.
+ * Only updates gemini/groq apiKey; other settings are immutable after startup.
+ */
+export function updateAiConfig(updates: { geminiApiKey?: string; groqApiKey?: string }): void {
+  if (updates.geminiApiKey !== undefined) {
+    aiConfig.gemini.apiKey = updates.geminiApiKey;
+    process.env.GEMINI_API_KEY = updates.geminiApiKey;
+  }
+  if (updates.groqApiKey !== undefined) {
+    aiConfig.groq.apiKey = updates.groqApiKey;
+    process.env.GROQ_API_KEY = updates.groqApiKey;
+  }
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: int(process.env.PORT, 4000),
@@ -98,27 +137,7 @@ export const env = {
     uploadDir: process.env.UPLOAD_DIR || 'uploads',
     maxUploadMb: int(process.env.MAX_UPLOAD_MB, 50),
   },
-  ai: {
-    /** Default provider used by the Form Assistant when the client asks for "auto". */
-    provider: (process.env.AI_PROVIDER || 'auto') as 'auto' | 'ollama' | 'gemini' | 'groq',
-    /** Per-request provider timeout (ms). Local models can be slow to warm up. */
-    timeoutMs: int(process.env.AI_TIMEOUT_MS, 60000),
-    ollama: {
-      baseUrl: (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/+$/, ''),
-      /** Empty = auto-discover the first installed non-embedding model. */
-      model: process.env.OLLAMA_MODEL || '',
-    },
-    gemini: {
-      apiKey: process.env.GEMINI_API_KEY || '',
-      /** Empty = provider default (see providers/gemini.ts). */
-      model: process.env.GEMINI_MODEL || '',
-    },
-    groq: {
-      apiKey: process.env.GROQ_API_KEY || '',
-      /** Empty = provider default (see providers/groq.ts). */
-      model: process.env.GROQ_MODEL || '',
-    },
-  },
+  ai: aiConfig,
   tenders: {
     /** Scheduled source collection cron expression (overridden by SystemConfig tenders.collectionCron at runtime). */
     collectionCron: process.env.TENDERS_COLLECTION_CRON || '0 */6 * * *',

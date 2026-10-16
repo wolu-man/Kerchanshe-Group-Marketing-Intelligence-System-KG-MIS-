@@ -20,7 +20,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     id: 'melkamu-alamerew',
     order: 1,
     name: 'Melkamu Alamerew',
-    title: 'Chief Technology Officer',
+    title: 'Chief Technology Officer (CTO)',
     area: 'Executive Technology Leadership & Strategic Oversight',
     email: 'melkamu.alamerew@kerchanshe.com',
     linkedin: 'https://www.linkedin.com/in/melkamu-a-4561212b',

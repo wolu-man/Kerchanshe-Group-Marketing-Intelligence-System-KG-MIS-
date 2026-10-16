@@ -234,6 +234,9 @@ const PERMISSIONS: Record<string, Partial<Record<Role, Capability>>> = {
     'Marketing Manager': 'full',
     'Marketing Analyst': 'full',
   },
+
+  // AI Renewal (admin-only)
+  'ai.renewal': { Administrator: 'full' },
 };
 
 const CAPABILITY_RESOLUTION: Record<Exclude<Capability, 'none'>, ResolvedCapability> = {

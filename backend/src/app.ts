@@ -20,6 +20,7 @@ import { competitorsRouter } from './modules/competitors/competitors.routes';
 import { relationshipRouter } from './modules/relationship/relationship.routes';
 import { officerPerformanceRouter } from './modules/officer/officer.routes';
 import { aiPublicRouter, aiRouter } from './modules/ai/ai.routes';
+import { aiRenewalRouter } from './modules/ai/ai-renewal.routes';
 import { tendersRouter } from './modules/tenders/tenders.routes';
 import { db } from './db/pool';
 
@@ -57,6 +58,7 @@ app.use('/api/v1', formsModule);
 // every request it receives.
 app.use('/api/v1/ai', aiPublicRouter);
 app.use('/api/v1/ai', aiRouter);
+app.use('/api/v1/ai', aiRenewalRouter);
 app.use('/api/v1/competitor-pricing', competitorPricingRouter);
 app.use('/api/v1/sync', syncRouter);
 app.use('/api/v1/admin', adminRouter);

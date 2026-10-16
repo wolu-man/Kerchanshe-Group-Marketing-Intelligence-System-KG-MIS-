@@ -105,6 +105,11 @@ export function Field({ label, required, error, hint, labelStyle, hintStyle, con
   );
 }
 
+export function Input(props: React.InputHTMLAttributes<HTMLInputElement> & { className?: string }) {
+  const { className = '', ...rest } = props;
+  return <input className={`input ${className}`.trim()} {...rest} />;
+}
+
 // ---------------------------------------------------------------------------
 // Icon (Font Awesome 6 free)
 // ---------------------------------------------------------------------------

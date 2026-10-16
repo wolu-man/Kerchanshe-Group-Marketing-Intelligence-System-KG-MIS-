@@ -11,6 +11,20 @@ import { dispatchEvent } from '../modules/notifications/notifications.service';
 import { collectAllSources, sendDeadlineReminders } from '../modules/tenders/collection.service';
 import { purgeExpiredInsights, refreshPredictions } from '../modules/predictive/predictive.service';
 import { purgeOldAttachments } from '../modules/ai/attachments';
+import { getConfigStore, AI_CONFIG_KEYS } from '../config/config-store';
+import { audit } from '../db/audit';
+
+/** Reads a string SystemConfig value (cron: no user context). */
+async function configStr(key: string, fallback: string): Promise<string> {
+  try {
+    const row = await db.request().input('Key', sql.VarChar(100), key).query(
+      `SELECT ConfigValue FROM dbo.SystemConfig WHERE ConfigKey = @Key`
+    );
+    return row.recordset[0]?.ConfigValue ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 /** Reads an integer SystemConfig value (cron: no user context). */
 async function configInt(key: string, fallback: number): Promise<number> {
@@ -22,6 +36,53 @@ async function configInt(key: string, fallback: number): Promise<number> {
     return Number.isFinite(n) ? n : fallback;
   } catch {
     return fallback;
+  }
+}
+
+/** Reads a boolean SystemConfig value (cron: no user context). */
+async function configBool(key: string, fallback: boolean): Promise<boolean> {
+  const val = await configStr(key, String(fallback));
+  return val === 'true';
+}
+
+/** Check if AI key rotation is due and mark it. Runs daily at 02:00 UTC. */
+async function checkAiKeyRotation(): Promise<void> {
+  try {
+    const enabled = await configBool(AI_CONFIG_KEYS.ROTATION_ENABLED, false);
+    if (!enabled) return;
+
+    const nextRunStr = await configStr(AI_CONFIG_KEYS.ROTATION_NEXT_RUN, '');
+    if (!nextRunStr) return;
+
+    const nextRun = new Date(nextRunStr);
+    if (isNaN(nextRun.getTime())) return;
+
+    const now = new Date();
+    if (nextRun > now) return; // Not due yet
+
+    // Check if already marked due
+    const alreadyDue = await configBool(AI_CONFIG_KEYS.ROTATION_DUE, false);
+    if (alreadyDue) {
+      logger.info('ai.rotation.already_due', { nextRun: nextRunStr });
+      return;
+    }
+
+    // Mark as due - admin needs to provide new key
+    const configStore = getConfigStore();
+    await configStore.set(AI_CONFIG_KEYS.ROTATION_DUE, 'true');
+
+    // Audit log
+    await audit({
+      userId: null, // System-initiated
+      action: 'AI_ROTATION_DUE',
+      entity: 'AiProvider',
+      detail: { nextRun: nextRunStr, provider: await configStr(AI_CONFIG_KEYS.ROTATION_PROVIDER, '') },
+      ipAddress: null,
+    });
+
+    logger.warn('ai.rotation.due', { nextRun: nextRunStr });
+  } catch (err) {
+    logger.error('ai.rotation.check_failed', { error: (err as Error).message });
   }
 }
 
@@ -176,6 +237,16 @@ function startScheduledJobs(): void {
       logger.error('Form reminder job failed', { error: (err as Error).message });
     }
   });
+
+  // AI key rotation check (02:00 UTC daily) - marks rotation as due when nextRun arrives.
+  cron.schedule('0 2 * * *', async () => {
+    try {
+      await checkAiKeyRotation();
+    } catch (err) {
+      logger.error('AI rotation check failed', { error: (err as Error).message });
+    }
+  });
+  logger.info('Scheduled job registered: AI key rotation check', { cron: '0 2 * * *' });
 
   // Tender source collection (configurable, disabled by default in dev).
   if (env.tenders.collectionEnabled) {

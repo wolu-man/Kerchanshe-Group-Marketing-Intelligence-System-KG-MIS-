@@ -338,6 +338,54 @@ export const ADMIN_REGIONS_TOUR: TourDefinition = {
   ],
 };
 
+export const ADMIN_CORP_MARKETING_TOUR: TourDefinition = {
+  id: 'admin-corp-marketing',
+  title: 'Corporate marketing plan',
+  subtitle: 'Monthly activity tasks, verification and events',
+  icon: 'bullhorn',
+  section: 'Administration',
+  roles: ADMIN_ROLES,
+  routes: ['/admin/corporate-marketing'],
+  steps: [
+    {
+      selector: '.kpi-hero',
+      title: 'Corporate marketing plan',
+      body: 'The annual plan from the KG Corporate Marketing workbook: 49 parent activities × 4 sub-tasks every month (2,352 tasks per year) plus the Events & Campaigns register. Hero stats track tasks, verification, average completion and events at a glance.',
+      placement: 'bottom',
+    },
+    {
+      selector: '.kpi-hero .btn-primary',
+      title: 'Import workbook',
+      body: 'Upload the annual KG Corporate Marketing_Plan_and_Activities.xlsx to upsert parents, tasks and events by ID — anything you have already entered (person, completion, status, remarks) is never overwritten.',
+      placement: 'bottom',
+    },
+    {
+      selector: '.tabs',
+      title: 'Four tabs',
+      body: 'Dashboard for rollups, Monthly Plan for day-to-day work, Events & Campaigns for the EVT register, and a built-in User Guide documenting the whole workflow.',
+      placement: 'bottom',
+    },
+    {
+      selector: '.tabs button:nth-of-type(2)',
+      title: 'Monthly Plan',
+      body: 'Pick year and month (196 tasks), filter by role or status, then assign a responsible person, completion % and evidence inline. Save the row, verify with ✓ or reject with ✗ — rejection requires a note, and editing a rejected task returns it to Not Verified.',
+      placement: 'bottom',
+    },
+    {
+      selector: '.tabs button:nth-of-type(3)',
+      title: 'Events & Campaigns',
+      body: 'The EVT-001… register with dates, owners, budgets and outcomes. Month, ISO week, conversion rate, ROI % and budget variance are derived automatically from your entries.',
+      placement: 'bottom',
+    },
+    {
+      selector: '.kpi-filters',
+      title: 'Dashboard filters',
+      body: 'Year and month drive this tab: stat cards for verified, pending and rejected work plus a rollup by responsible role. The period stays selected as you switch tabs.',
+      placement: 'bottom',
+    },
+  ],
+};
+
 export const ADMIN_RELATIONSHIPS_TOUR: TourDefinition = {
   id: 'admin-relationships',
   title: 'Relationship configuration',

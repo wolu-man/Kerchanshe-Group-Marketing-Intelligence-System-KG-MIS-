@@ -6,6 +6,7 @@ import { Button, Card, Badge, Modal, Tabs, Icon, Loading, Empty, Pagination } fr
 import { useFetch } from '@/lib/use-api';
 import { api, apiBlob, ApiError, qs, downloadFile } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { TourTrigger } from '@/components/tour/TourTrigger';
 import type { CorpTask, CorpTaskPage, CorpEvent, CorpSummary } from '@/lib/types';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -1041,6 +1042,7 @@ function CorpMarketingPage() {
               <div className="kpi-hero-info">
                 <h2>Corporate Marketing Activities Plan</h2>
                 <p>Monthly activity tasks, verification and events/campaigns register</p>
+                <TourTrigger tourId="admin-corp-marketing" />
               </div>
               <div className="kpi-hero-stats">
                 <div className="kpi-hero-stat">

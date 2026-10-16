@@ -65,6 +65,7 @@ export default function LoginPage() {
             Sign in
           </Button>
         </form>
+        <TourTriggerLink tourId="signin" />
       </div>
     </div>
   );
